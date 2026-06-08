@@ -1,0 +1,165 @@
+[
+  {
+    "timestamp": "2026-06-07T13:22:48.341530",
+    "category": "auth",
+    "name": "Register new user",
+    "status": "FAIL",
+    "response_code": 500,
+    "response_body": "{\"detail\":\"{'message': 'duplicate key value violates unique constraint \\\"users_pkey\\\"', 'code': '23505', 'hint': None, 'details': None}\"}",
+    "error": null,
+    "latency_ms": 4666.56756401062
+  },
+  {
+    "timestamp": "2026-06-07T13:22:52.056309",
+    "category": "auth",
+    "name": "Login with valid credentials",
+    "status": "PASS",
+    "response_code": 200,
+    "response_body": "Token: eyJhbGciOiJIUzI1NiIsInR5cCI6Ik...",
+    "error": null,
+    "latency_ms": 3714.7793769836426
+  },
+  {
+    "timestamp": "2026-06-07T13:22:52.447362",
+    "category": "auth",
+    "name": "Login with wrong password",
+    "status": "PASS",
+    "response_code": 401,
+    "response_body": null,
+    "error": null,
+    "latency_ms": 390.05446434020996
+  },
+  {
+    "timestamp": "2026-06-07T13:22:52.725150",
+    "category": "auth",
+    "name": "Get current user",
+    "status": "PASS",
+    "response_code": 200,
+    "response_body": "User: audit_1780818762@test.paraflow.ai",
+    "error": null,
+    "latency_ms": 276.78704261779785
+  },
+  {
+    "timestamp": "2026-06-07T13:22:53.293268",
+    "category": "auth",
+    "name": "Get user credits",
+    "status": "PASS",
+    "response_code": 200,
+    "response_body": {
+      "balance": 10,
+      "tier": "free"
+    },
+    "error": null,
+    "latency_ms": 568.1185722351074
+  },
+  {
+    "timestamp": "2026-06-07T13:22:53.298524",
+    "category": "auth",
+    "name": "Access without token",
+    "status": "FAIL",
+    "response_code": 403,
+    "response_body": "Expected 401, got 403",
+    "error": null,
+    "latency_ms": 5.255222320556641
+  },
+  {
+    "timestamp": "2026-06-07T13:22:58.720253",
+    "category": "tools",
+    "name": "Paraphraser",
+    "status": "PASS",
+    "response_code": 200,
+    "response_body": "Output: A swift and agile fox, known for its rich reddish-brown fur, springs effortlessl...",
+    "error": null,
+    "latency_ms": 5421.729564666748
+  },
+  {
+    "timestamp": "2026-06-07T13:22:59.279135",
+    "category": "tools",
+    "name": "Humanizer",
+    "status": "FAIL",
+    "response_code": 402,
+    "response_body": "Insufficient credits",
+    "error": null,
+    "latency_ms": 558.8815212249756
+  },
+  {
+    "timestamp": "2026-06-07T13:23:00.389714",
+    "category": "tools",
+    "name": "Grammar Checker",
+    "status": "PASS",
+    "response_code": 200,
+    "response_body": "Corrected: She go to the store yesterday....",
+    "error": null,
+    "latency_ms": 1110.579490661621
+  },
+  {
+    "timestamp": "2026-06-07T13:23:00.933124",
+    "category": "tools",
+    "name": "Summarizer",
+    "status": "FAIL",
+    "response_code": 402,
+    "response_body": "Insufficient credits",
+    "error": null,
+    "latency_ms": 543.4098243713379
+  },
+  {
+    "timestamp": "2026-06-07T13:23:01.458419",
+    "category": "tools",
+    "name": "Translator",
+    "status": "FAIL",
+    "response_code": 402,
+    "response_body": "Insufficient credits",
+    "error": null,
+    "latency_ms": 525.2952575683594
+  },
+  {
+    "timestamp": "2026-06-07T13:23:01.991039",
+    "category": "tools",
+    "name": "AI Detector",
+    "status": "FAIL",
+    "response_code": 402,
+    "response_body": "Insufficient credits",
+    "error": null,
+    "latency_ms": 532.6199531555176
+  },
+  {
+    "timestamp": "2026-06-07T13:23:02.527016",
+    "category": "tools",
+    "name": "SEO Analyzer",
+    "status": "FAIL",
+    "response_code": 402,
+    "response_body": "Insufficient credits",
+    "error": null,
+    "latency_ms": 534.977912902832
+  },
+  {
+    "timestamp": "2026-06-07T13:23:03.080798",
+    "category": "tools",
+    "name": "Transform Tool",
+    "status": "FAIL",
+    "response_code": 402,
+    "response_body": "Insufficient credits",
+    "error": null,
+    "latency_ms": 553.7815093994141
+  },
+  {
+    "timestamp": "2026-06-07T13:23:03.376940",
+    "category": "tools",
+    "name": "Health Score",
+    "status": "PASS",
+    "response_code": 200,
+    "response_body": "Score: 80",
+    "error": null,
+    "latency_ms": 296.1423397064209
+  },
+  {
+    "timestamp": "2026-06-07T13:23:42.314138",
+    "category": "tools",
+    "name": "Writing DNA Enroll",
+    "status": "FAIL",
+    "response_code": 500,
+    "response_body": "Database error (expected - local DB not running)",
+    "error": null,
+    "latency_ms": 38937.19744682312
+  }
+]
