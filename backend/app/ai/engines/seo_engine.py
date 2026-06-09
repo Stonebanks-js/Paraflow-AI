@@ -70,12 +70,31 @@ class SEOEngine(BaseAIEngine):
 
         words = text.split()
         total_words = len(words)
-        total_chars = sum(len(w) for w in words)
+        if total_words == 0:
+            return 50.0
 
-        avg_sentence_length = total_words / len(sentences) if sentences else 1
-        avg_word_length = total_chars / total_words if total_words else 1
+        def count_syllables(word: str) -> int:
+            word = word.lower()
+            count = 0
+            vowels = "aeiouy"
+            if word and word[0] in vowels:
+                count += 1
+            for index in range(1, len(word)):
+                if word[index] in vowels and word[index - 1] not in vowels:
+                    count += 1
+            if word.endswith("e"):
+                count -= 1
+            if word.endswith("le") and len(word) > 2 and word[-3] not in vowels:
+                count += 1
+            if count == 0:
+                count = 1
+            return count
 
-        flesch_score = 206.835 - 1.015 * avg_sentence_length - 84.6 * (total_chars / total_words if total_words else 1)
+        total_syllables = sum(count_syllables(w) for w in words)
+        avg_sentence_length = total_words / len(sentences)
+        avg_syllables_per_word = total_syllables / total_words
+
+        flesch_score = 206.835 - 1.015 * avg_sentence_length - 84.6 * avg_syllables_per_word
 
         readability = max(0, min(100, flesch_score))
 

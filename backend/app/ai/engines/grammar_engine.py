@@ -28,7 +28,7 @@ class GrammarEngine(BaseAIEngine):
 
         issues = await self._stage1_rule_based(input_text)
 
-        corrected_text = await self._stage2_llm_rewrite(input_text, issues)
+        corrected_text = await self._stage2_llm_rewrite(input_text, issues, force_llm=True)
 
         return {
             "status": "success",
@@ -79,17 +79,20 @@ class GrammarEngine(BaseAIEngine):
 
         return issues
 
-    async def _stage2_llm_rewrite(self, text: str, issues: List[GrammarIssue]) -> str:
-        if not issues:
+    async def _stage2_llm_rewrite(self, text: str, issues: List[GrammarIssue], force_llm: bool = False) -> str:
+        if not issues and not force_llm:
             return text
 
         engine = NVIDIAEngine()
 
-        error_summary = "\n".join([
-            f"- {issue.type}: {issue.message}" for issue in issues[:10]
-        ])
+        if not issues:
+            prompt = f"Fix any grammar, punctuation, and style issues in this text. Improve clarity and flow while preserving the author's voice:\n\n{text}\n\nProvide only the corrected text without explanations."
+        else:
+            error_summary = "\n".join([
+                f"- {issue.type}: {issue.message}" for issue in issues[:10]
+            ])
+            prompt = f"Fix these grammar and style issues in the text:\n{error_summary}\n\nOriginal text:\n{text}\n\nProvide only the corrected text without explanations."
 
-        prompt = f"Fix these grammar and style issues in the text:\n{error_summary}\n\nOriginal text:\n{text}\n\nProvide only the corrected text without explanations."
         result = await engine.process(prompt, {"mode": "fluency"})
 
         return result.get("output", text)
