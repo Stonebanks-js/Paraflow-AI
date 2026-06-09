@@ -205,11 +205,12 @@ All 8 AI engines have been validated through end-to-end testing. The backend is 
 
 ## Deployment Notes
 
-### For Railway Deployment
+### For Production Deployment
 
-1. Set `DEMO_MODE=false` in Railway environment variables
+1. Set `DEMO_MODE=false` in environment variables
 2. Configure `SUPABASE_URL`, `SUPABASE_KEY`, `SUPABASE_SERVICE_KEY`
 3. Set `NVIDIA_API_KEY` for real AI processing
+4. Configure `JWT_SECRET_KEY` with a strong random string
 
 ### For Local Development
 
@@ -227,7 +228,7 @@ All 8 AI engines are now working correctly:
 - Authentication working with demo mode
 - Credits system working with demo mode
 
-The application is ready for Railway and Vercel deployment once proper environment variables are configured.
+The application is ready for Render deployment once proper environment variables are configured.
 
 ---
 

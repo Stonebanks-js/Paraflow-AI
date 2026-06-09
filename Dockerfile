@@ -16,7 +16,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY backend/ /app/
 
-# Expose port (Railway will set PORT env var)
+# Expose port (PORT env var is set by deployment platform)
 EXPOSE 8000
 
 # Run the application
