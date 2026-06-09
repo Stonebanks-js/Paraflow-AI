@@ -84,6 +84,16 @@ async def health_check():
     }
 
 
+@app.get("/api/debug")
+async def debug_settings():
+    return {
+        "DEMO_MODE": settings.DEMO_MODE,
+        "SUPABASE_URL": settings.SUPABASE_URL,
+        "SUPABASE_KEY": settings.SUPABASE_KEY,
+        "condition": settings.DEMO_MODE or not settings.SUPABASE_KEY
+    }
+
+
 @app.get("/")
 async def root():
     return {

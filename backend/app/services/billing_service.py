@@ -2,6 +2,7 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime
 from app.db.supabase import get_supabase, get_supabase_admin
+from app.core.config import settings
 import structlog
 
 logger = structlog.get_logger()
@@ -10,16 +11,26 @@ logger = structlog.get_logger()
 class BillingService:
     def __init__(self, db=None):
         self.db = db
-        self.supabase = get_supabase()
-        self.admin = get_supabase_admin()
+        self.demo_mode = settings.DEMO_MODE or not settings.SUPABASE_KEY
+        self.supabase = None
+        self.admin = None
+        if not self.demo_mode:
+            try:
+                self.supabase = get_supabase()
+                self.admin = get_supabase_admin()
+            except Exception as e:
+                logger.warning(f"Supabase not available, running in demo mode: {e}")
+                self.demo_mode = True
 
     async def get_balance(self, user_id: str) -> int:
         """Get user's current credit balance"""
+        if self.demo_mode:
+            return 100
+
         try:
             response = self.supabase.table("credits").select("amount").eq("user_id", user_id).execute()
             if response.data:
                 return response.data[0].get("amount", 0)
-            # No credits row - return 0 and let deduct_credits handle creation
             return 0
         except Exception as e:
             logger.warning(f"Failed to get balance: {e}")
@@ -27,6 +38,9 @@ class BillingService:
 
     async def _user_exists_in_users(self, user_id: str) -> bool:
         """Check if user exists in users table"""
+        if self.demo_mode:
+            return True
+
         try:
             response = self.supabase.table("users").select("id").eq("id", user_id).execute()
             return len(response.data) > 0
@@ -35,13 +49,15 @@ class BillingService:
 
     async def _get_or_create_credits_row(self, user_id: str, initial_amount: int = 100) -> bool:
         """Create or update credits row for user with specified amount"""
+        if self.demo_mode:
+            return True
+
         try:
             now = datetime.utcnow()
             period_end = datetime(now.year + (1 if now.month > 6 else 0), ((now.month + 6) % 12) or 12, min(now.day, 28))
 
             existing = self.supabase.table("credits").select("id").eq("user_id", user_id).execute()
             if existing.data:
-                # Update existing row with correct amount
                 self.admin.table("credits").update({
                     "amount": initial_amount,
                     "used": 0,
@@ -51,7 +67,6 @@ class BillingService:
                 logger.info(f"Updated credits row for user {user_id} to {initial_amount} credits")
                 return True
 
-            # Create new credits row
             response = self.admin.table("credits").insert({
                 "user_id": user_id,
                 "amount": initial_amount,
@@ -70,27 +85,26 @@ class BillingService:
 
     async def deduct_credits(self, user_id: str, amount: int, tool: str) -> bool:
         """Deduct credits from user's balance"""
+        if self.demo_mode:
+            logger.info(f"Demo mode: allowing {amount} credits for {tool}")
+            return True
+
         try:
-            # Check if user exists in users table
             if not await self._user_exists_in_users(user_id):
                 logger.error(f"User {user_id} not found in users table")
                 return False
 
-            # Ensure credits row exists
             await self._get_or_create_credits_row(user_id, initial_amount=100)
 
-            # Get current balance
             current = await self.get_balance(user_id)
 
-            # Check if user has enough credits
             if current < amount:
                 logger.warning(f"Insufficient credits for user {user_id}: has {current}, needs {amount}")
                 return False
 
-            # Update credits - decrement amount and increment used
             response = self.admin.table("credits").update({
                 "amount": current - amount,
-                "used": (current - amount)  # Track used amount
+                "used": (current - amount)
             }).eq("user_id", user_id).execute()
 
             if response.data:
@@ -105,7 +119,9 @@ class BillingService:
             return False
 
     async def add_credits(self, user_id: str, amount: int, transaction_type: str = "purchase") -> bool:
-        """Add credits to user's balance"""
+        if self.demo_mode:
+            return True
+
         try:
             current = await self.get_balance(user_id)
             response = self.admin.table("credits").update({

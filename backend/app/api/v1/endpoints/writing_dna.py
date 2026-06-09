@@ -7,6 +7,8 @@ from app.schemas.writing_dna import (
 )
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.writing_dna_service import WritingDNAService
+from app.core.config import settings
+from uuid import uuid4
 
 router = APIRouter(prefix="/writing-dna", tags=["writing-dna"])
 
@@ -17,8 +19,29 @@ async def enroll_writing_dna(
     current_user = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    service = WritingDNAService(db)
+    demo_mode = settings.DEMO_MODE or not settings.SUPABASE_KEY
 
+    if demo_mode:
+        service = WritingDNAService(db)
+        analysis = await service._analyze_samples(request.samples)
+
+        return WritingDNAResponse(
+            profile_id=str(uuid4()),
+            status="completed",
+            analysis=WritingDNAAnalysis(
+                vocabulary_richness=analysis["vocabulary_richness"],
+                formality_score=analysis["formality_score"],
+                sentence_length_avg=analysis["sentence_length_avg"],
+                tone_score=analysis["tone_score"],
+                burstiness_score=analysis["burstiness_score"],
+                rhythm_score=analysis["rhythm_score"],
+                structure_score=analysis["structure_score"]
+            ),
+            sample_count=len(request.samples),
+            is_active=True
+        )
+
+    service = WritingDNAService(db)
     profile = await service.create_profile(current_user["id"], request.samples)
 
     return WritingDNAResponse(

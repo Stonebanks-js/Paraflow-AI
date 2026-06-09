@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
+import uuid
 from app.db.database import get_db
 from app.db.supabase import get_supabase
 from app.schemas.auth import (
@@ -16,6 +17,30 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer()
 logger = structlog.get_logger()
 
+DEMO_USERS = {}
+
+
+def get_demo_user(email: str, password: str = None) -> Optional[dict]:
+    if email in DEMO_USERS:
+        if password is None or DEMO_USERS[email]["password"] == password:
+            return DEMO_USERS[email]
+    return None
+
+
+def create_demo_user(email: str, password: str, full_name: str = None) -> dict:
+    user_id = str(uuid.uuid4())
+    user = {
+        "id": user_id,
+        "email": email,
+        "password": password,
+        "full_name": full_name or email.split("@")[0],
+        "role": "free",
+        "onboarding_done": False,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    DEMO_USERS[email] = user
+    return user
+
 
 def get_user_from_token(token: str) -> Optional[dict]:
     try:
@@ -29,6 +54,21 @@ def get_user_from_token(token: str) -> Optional[dict]:
 
 @router.post("/register", response_model=SignUpResponse, status_code=status.HTTP_201_CREATED)
 async def register(user_data: UserCreate):
+    if settings.DEMO_MODE or not settings.SUPABASE_KEY:
+        if get_demo_user(user_data.email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered"
+            )
+        user = create_demo_user(user_data.email, user_data.password, user_data.full_name)
+        access_token = create_access_token({"sub": user["id"], "email": user["email"]})
+        return SignUpResponse(
+            id=user["id"],
+            email=user["email"],
+            created_at=datetime.utcnow(),
+            message="Account created successfully in demo mode."
+        )
+
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -64,14 +104,6 @@ async def register(user_data: UserCreate):
                 "onboarding_done": False
             }, on_conflict="id").execute()
 
-            # Create 100 credits for new user
-            try:
-                from app.services.billing_service import BillingService
-                billing = BillingService()
-                await billing._get_or_create_credits_row(auth_response.user.id, initial_amount=100)
-            except Exception as credit_err:
-                logger.warning(f"Could not create credits for new user: {credit_err}")
-
             return SignUpResponse(
                 id=auth_response.user.id,
                 email=auth_response.user.email,
@@ -93,6 +125,27 @@ async def register(user_data: UserCreate):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(credentials: LoginRequest):
+    if settings.DEMO_MODE or not settings.SUPABASE_KEY:
+        user = get_demo_user(credentials.email, credentials.password)
+        if user:
+            access_token = create_access_token({"sub": user["id"], "email": user["email"]})
+            refresh_token = create_refresh_token({"sub": user["id"]})
+            return TokenResponse(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                token_type="bearer",
+                expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                user=UserResponse(
+                    id=user["id"],
+                    email=user["email"],
+                    full_name=user.get("full_name"),
+                    role=user.get("role", "free"),
+                    onboarding_done=user.get("onboarding_done", False),
+                    created_at=datetime.fromisoformat(user["created_at"].replace("Z", "+00:00")) if isinstance(user.get("created_at"), str) else datetime.utcnow()
+                )
+            )
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -192,12 +245,13 @@ async def get_current_user(
         )
 
     user_id = payload.get("sub")
+    user_email = payload.get("email", "")
 
-    if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
+    if settings.DEMO_MODE or not settings.SUPABASE_KEY:
         return {
             "id": user_id,
-            "email": payload.get("email", ""),
-            "full_name": None,
+            "email": user_email,
+            "full_name": user_email.split("@")[0] if user_email else "Demo User",
             "role": "free",
             "onboarding_done": False
         }
