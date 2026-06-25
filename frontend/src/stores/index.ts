@@ -120,11 +120,13 @@ export const useConversationStore = create<ConversationState>()((set, get) => ({
   getConversation: (toolId: string) => {
     const state = get();
     if (!state.conversations[toolId]) {
-      state.conversations[toolId] = {
-        messages: [],
-        inputText: '',
-        outputText: '',
-      };
+      set((s) => ({
+        conversations: {
+          ...s.conversations,
+          [toolId]: { messages: [], inputText: '', outputText: '' },
+        },
+      }));
+      return { messages: [], inputText: '', outputText: '' };
     }
     return state.conversations[toolId];
   },

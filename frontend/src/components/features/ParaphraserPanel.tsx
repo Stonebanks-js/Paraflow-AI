@@ -23,8 +23,8 @@ const modes = [
   { id: "academic", label: "Academic", description: "Scholarly style", icon: BookOpen },
   { id: "creative", label: "Creative", description: "Creative flair", icon: Lightbulb },
   { id: "simple", label: "Simple", description: "Easy to read", icon: Type },
-  { id: "humanized", label: "Humanized", description: "Natural and human-like", icon: RefreshCw },
-  { id: "seo", label: "SEO-Friendly", description: "Optimized for search", icon: TrendingUp },
+  { id: "expand", label: "Expand", description: "Elaborate with more detail", icon: FileText },
+  { id: "shorten", label: "Shorten", description: "Make it more concise", icon: Hash },
 ];
 
 export function ParaphraserPanel() {

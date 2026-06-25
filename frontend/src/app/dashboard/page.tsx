@@ -66,10 +66,12 @@ const item = {
 };
 
 export default function DashboardPage() {
-  const { user, credits } = useUserStore();
+  const { user } = useUserStore();
   const creditsQuery = useCredits();
   const [greeting, setGreeting] = useState("");
   const [stats, setStats] = useState({ documents: 0, wordsProcessed: 0, timeSaved: 0 });
+  const [healthScore, setHealthScore] = useState(0);
+  const [dimensions, setDimensions] = useState({ grammar: 0, clarity: 0, seo: 0 });
 
   useEffect(() => {
     const hour = new Date().getHours();
@@ -78,7 +80,48 @@ export default function DashboardPage() {
     else setGreeting("Good evening");
   }, []);
 
-  const creditsBalance = creditsQuery.data?.balance ?? credits ?? 100;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const usage = await api.get<{ jobs_completed?: number; words_processed?: number; time_saved_minutes?: number }>(
+          "/v1/billing/usage"
+        );
+        if (cancelled) return;
+        setStats({
+          documents: usage.jobs_completed ?? 0,
+          wordsProcessed: usage.words_processed ?? 0,
+          timeSaved: usage.time_saved_minutes ?? 0,
+        });
+      } catch {
+        if (!cancelled) setStats({ documents: 0, wordsProcessed: 0, timeSaved: 0 });
+      }
+      try {
+        const health = await api.get<{ score?: number; dimensions?: { grammar?: number; clarity?: number; seo?: number } }>(
+          "/v1/health/score?text="
+        );
+        if (cancelled) return;
+        setHealthScore(health.score ?? 0);
+        if (health.dimensions) {
+          setDimensions({
+            grammar: health.dimensions.grammar ?? 0,
+            clarity: health.dimensions.clarity ?? 0,
+            seo: health.dimensions.seo ?? 0,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setHealthScore(0);
+          setDimensions({ grammar: 0, clarity: 0, seo: 0 });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const creditsBalance = creditsQuery.data?.balance ?? 0;
   const planTier = creditsQuery.data?.tier ?? "Free";
 
   return (
@@ -148,8 +191,8 @@ export default function DashboardPage() {
                   <div>
                     <p className="text-sm text-muted-foreground mb-1">Documents Created</p>
                     <p className="text-3xl font-bold">{stats.documents}</p>
-                    <p className="text-xs text-success mt-1 flex items-center gap-1">
-                      <TrendingUp className="w-3 h-3" /> 0 this week
+                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                      <TrendingUp className="w-3 h-3" /> {stats.documents} this week
                     </p>
                   </div>
                   <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
@@ -364,7 +407,7 @@ export default function DashboardPage() {
                           strokeLinecap="round"
                           strokeDasharray={351.86}
                           initial={{ strokeDashoffset: 351.86 }}
-                          animate={{ strokeDashoffset: 351.86 * 0.6 }}
+                          animate={{ strokeDashoffset: 351.86 * (1 - (healthScore || 0) / 100) }}
                           transition={{ duration: 1, delay: 0.5 }}
                         />
                         <defs>
@@ -375,22 +418,24 @@ export default function DashboardPage() {
                         </defs>
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-3xl font-bold">72</span>
-                        <span className="text-xs text-muted-foreground">Good</span>
+                        <span className="text-3xl font-bold">{healthScore || 0}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {healthScore >= 80 ? "Excellent" : healthScore >= 60 ? "Good" : healthScore > 0 ? "Fair" : "Start writing"}
+                        </span>
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2 mt-4">
                     <div className="text-center">
-                      <p className="text-lg font-semibold">85</p>
+                      <p className="text-lg font-semibold">{dimensions.grammar || 0}</p>
                       <p className="text-xs text-muted-foreground">Grammar</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-lg font-semibold">68</p>
+                      <p className="text-lg font-semibold">{dimensions.clarity || 0}</p>
                       <p className="text-xs text-muted-foreground">Clarity</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-lg font-semibold">64</p>
+                      <p className="text-lg font-semibold">{dimensions.seo || 0}</p>
                       <p className="text-xs text-muted-foreground">SEO</p>
                     </div>
                   </div>

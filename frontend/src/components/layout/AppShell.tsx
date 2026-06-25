@@ -294,7 +294,15 @@ export function AppShell({ children }: AppShellProps) {
                     <p className="text-sm font-medium truncate">{user.full_name || user.email}</p>
                     <p className="text-xs text-muted-foreground">{credits} credits</p>
                   </div>
-                  <button onClick={logout} className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-destructive">
+                  <button
+                    onClick={async () => {
+                      const { signOut } = await import('@/lib/auth-service')
+                      await signOut()
+                      logout()
+                      window.location.href = '/login'
+                    }}
+                    className="p-2 rounded-lg hover:bg-accent text-muted-foreground hover:text-destructive"
+                  >
                     <LogOut className="w-5 h-5" />
                   </button>
                 </div>
