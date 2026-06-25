@@ -24,7 +24,6 @@ export async function apiFetch<T>(
   }
 
   const url = `${API_BASE}${endpoint}`;
-  console.log('API Request:', options.method || 'GET', url);
 
   const response = await fetch(url, {
     ...fetchOptions,
