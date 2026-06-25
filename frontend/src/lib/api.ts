@@ -1,4 +1,4 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'https://paraflow-ai.onrender.com/api';
 
 interface FetchOptions extends RequestInit {
   token?: string;
@@ -23,7 +23,10 @@ export async function apiFetch<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const url = `${API_BASE}${endpoint}`;
+  console.log('API Request:', options.method || 'GET', url);
+
+  const response = await fetch(url, {
     ...fetchOptions,
     headers,
   });
