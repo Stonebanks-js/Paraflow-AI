@@ -2,12 +2,15 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
 import { Button, Progress, Badge } from "@/components/ui";
 import { useUserStore } from "@/stores";
 import { useCredits } from "@/hooks/use-api";
+import { getSession, mapSupabaseUserToAppUser, isSupabaseConfigured } from "@/lib/auth-service";
+import { Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -66,12 +69,43 @@ const item = {
 };
 
 export default function DashboardPage() {
-  const { user } = useUserStore();
+  const router = useRouter();
+  const { user, setUser, setToken } = useUserStore();
   const creditsQuery = useCredits();
+  const [authReady, setAuthReady] = useState(false);
   const [greeting, setGreeting] = useState("");
   const [stats, setStats] = useState({ documents: 0, wordsProcessed: 0, timeSaved: 0 });
   const [healthScore, setHealthScore] = useState(0);
   const [dimensions, setDimensions] = useState({ grammar: 0, clarity: 0, seo: 0 });
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      setAuthReady(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const session = await getSession();
+      if (cancelled) return;
+      if (session?.user) {
+        const appUser = mapSupabaseUserToAppUser(session.user);
+        if (appUser) {
+          setUser(appUser);
+          setToken(session.access_token);
+          setAuthReady(true);
+        } else {
+          setAuthReady(true);
+        }
+      } else if (user) {
+        setAuthReady(true);
+      } else {
+        router.replace("/login");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router, user, setUser, setToken]);
 
   useEffect(() => {
     const hour = new Date().getHours();
@@ -123,6 +157,14 @@ export default function DashboardPage() {
 
   const creditsBalance = creditsQuery.data?.balance ?? 0;
   const planTier = creditsQuery.data?.tier ?? "Free";
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <AppShell>
