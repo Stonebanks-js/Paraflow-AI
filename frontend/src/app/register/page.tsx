@@ -104,11 +104,13 @@ export default function RegisterPage() {
 
       if (signUpError) {
         setError(signUpError);
+        setLoading(false);
         return;
       }
 
       if (!user) {
         setError("Registration failed. Please try again.");
+        setLoading(false);
         return;
       }
 
@@ -116,16 +118,17 @@ export default function RegisterPage() {
       if (session?.user && session?.access_token) {
         setUser(mapSupabaseUserToAppUser(session.user) || user);
         setToken(session.access_token);
+        setLoading(false);
         router.push("/dashboard");
       } else {
         setSuccess(
           "Account created! Please check your email to verify your account, then sign in."
         );
+        setLoading(false);
         setTimeout(() => router.push("/login"), 2000);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
-    } finally {
       setLoading(false);
     }
   };

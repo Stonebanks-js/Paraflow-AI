@@ -46,10 +46,25 @@ export async function apiFetch<T>(
   }
 
   const url = `${API_BASE_WITH_SLASH}${endpoint}`
-  const response = await fetch(url, {
-    ...fetchOptions,
-    headers,
-  })
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000)
+
+  let response: Response
+  try {
+    response = await fetch(url, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal,
+    })
+  } catch (err) {
+    clearTimeout(timeout)
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.')
+    }
+    throw new Error(err instanceof Error ? err.message : 'Network error')
+  }
+  clearTimeout(timeout)
 
   if (!response.ok) {
     let detail = `HTTP ${response.status}`

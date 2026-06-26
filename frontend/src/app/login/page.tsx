@@ -72,17 +72,21 @@ function LoginForm() {
       const { user, error: signInError } = await signInWithEmail(email.trim(), password);
       if (signInError) {
         setError(signInError);
+        setLoading(false);
         return;
       }
       if (user) {
-        const session = await getSession();
         setUser(user);
+        const session = await getSession();
         setToken(session?.access_token ?? null);
+        setLoading(false);
         router.push("/dashboard");
+      } else {
+        setError("Login failed. Please try again.");
+        setLoading(false);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
       setLoading(false);
     }
   };
