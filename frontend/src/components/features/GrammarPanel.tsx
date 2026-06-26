@@ -39,6 +39,7 @@ export function GrammarPanel() {
   const [chatMessage, setChatMessage] = useState("");
   const [activeTab, setActiveTab] = useState<"overview" | "issues" | "suggestions" | "chat">("overview");
   const [appliedFixes, setAppliedFixes] = useState<Set<number>>(new Set());
+  const [error, setError] = useState<string | null>(null);
 
   const grammarMutation = useGrammar();
 
@@ -51,8 +52,16 @@ export function GrammarPanel() {
   }, [outputText, toolId, setOutputText]);
 
   const handleGrammarCheck = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim()) {
+      setError("Please enter text to check.");
+      return;
+    }
+    if (inputText.length > 50000) {
+      setError("Text is too long. Maximum 50,000 characters allowed.");
+      return;
+    }
     setIsProcessing(true);
+    setError(null);
     setAppliedFixes(new Set());
 
     addMessage(toolId, {
@@ -75,8 +84,9 @@ export function GrammarPanel() {
         content: result.corrected_text || "",
         timestamp: Date.now(),
       });
-    } catch (error) {
-      console.error("Grammar check failed:", error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Grammar check failed";
+      setError(message);
     } finally {
       setIsProcessing(false);
     }

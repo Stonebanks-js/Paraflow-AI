@@ -36,6 +36,7 @@ export function SummarizerPanel() {
   const [showComparison, setShowComparison] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
   const [activeTab, setActiveTab] = useState<"summary" | "keypoints" | "insights" | "chat">("summary");
+  const [error, setError] = useState<string | null>(null);
 
   const summarizeMutation = useSummarize();
 
@@ -48,8 +49,16 @@ export function SummarizerPanel() {
   }, [outputText, toolId, setOutputText]);
 
   const handleSummarize = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim()) {
+      setError("Please enter text to summarize.");
+      return;
+    }
+    if (inputText.length > 50000) {
+      setError("Text is too long. Maximum 50,000 characters allowed.");
+      return;
+    }
     setIsProcessing(true);
+    setError(null);
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -72,8 +81,9 @@ export function SummarizerPanel() {
         content: result.summary || "",
         timestamp: Date.now(),
       });
-    } catch (error) {
-      console.error("Summarize failed:", error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Summarize failed";
+      setError(message);
     } finally {
       setIsProcessing(false);
     }

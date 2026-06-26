@@ -69,6 +69,7 @@ export function TranslatorPanel() {
   const [chatMessage, setChatMessage] = useState("");
   const [activeTab, setActiveTab] = useState<"result" | "report" | "chat">("result");
   const [translationType, setTranslationType] = useState("general");
+  const [error, setError] = useState<string | null>(null);
 
   const translateMutation = useTranslate();
 
@@ -81,8 +82,16 @@ export function TranslatorPanel() {
   }, [outputText, toolId, setOutputText]);
 
   const handleTranslate = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim()) {
+      setError("Please enter text to translate.");
+      return;
+    }
+    if (inputText.length > 50000) {
+      setError("Text is too long. Maximum 50,000 characters allowed.");
+      return;
+    }
     setIsProcessing(true);
+    setError(null);
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -106,8 +115,9 @@ export function TranslatorPanel() {
         content: result.translated_text || "",
         timestamp: Date.now(),
       });
-    } catch (error) {
-      console.error("Translation failed:", error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Translation failed";
+      setError(message);
     } finally {
       setIsProcessing(false);
     }

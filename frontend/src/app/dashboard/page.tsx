@@ -70,13 +70,14 @@ const item = {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, setUser, setToken } = useUserStore();
+  const { user, setUser, setToken, logout } = useUserStore();
   const creditsQuery = useCredits();
   const [authReady, setAuthReady] = useState(false);
   const [greeting, setGreeting] = useState("");
   const [stats, setStats] = useState({ documents: 0, wordsProcessed: 0, timeSaved: 0 });
   const [healthScore, setHealthScore] = useState(0);
   const [dimensions, setDimensions] = useState({ grammar: 0, clarity: 0, seo: 0 });
+  const [apiError, setApiError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -85,27 +86,30 @@ export default function DashboardPage() {
     }
     let cancelled = false;
     (async () => {
-      const session = await getSession();
-      if (cancelled) return;
-      if (session?.user) {
-        const appUser = mapSupabaseUserToAppUser(session.user);
-        if (appUser) {
-          setUser(appUser);
-          setToken(session.access_token);
-          setAuthReady(true);
-        } else {
-          setAuthReady(true);
+      try {
+        const session = await getSession();
+        if (cancelled) return;
+        if (session?.user) {
+          const appUser = mapSupabaseUserToAppUser(session.user);
+          if (appUser) {
+            setUser(appUser);
+            setToken(session.access_token);
+            setAuthReady(true);
+            return;
+          }
         }
-      } else if (user) {
-        setAuthReady(true);
-      } else {
+        logout();
         router.replace("/login");
+      } catch (err) {
+        if (!cancelled) {
+          router.replace("/login");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [router, user, setUser, setToken]);
+  }, [router, setUser, setToken, logout]);
 
   useEffect(() => {
     const hour = new Date().getHours();

@@ -28,6 +28,7 @@ export function HumanizerPanel() {
   const [showComparison, setShowComparison] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
   const [activeTab, setActiveTab] = useState<"result" | "report" | "changes" | "chat">("result");
+  const [error, setError] = useState<string | null>(null);
 
   const humanizeMutation = useHumanize();
 
@@ -40,8 +41,16 @@ export function HumanizerPanel() {
   }, [outputText, toolId, setOutputText]);
 
   const handleHumanize = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim()) {
+      setError("Please enter text to humanize.");
+      return;
+    }
+    if (inputText.length > 50000) {
+      setError("Text is too long. Maximum 50,000 characters allowed.");
+      return;
+    }
     setIsProcessing(true);
+    setError(null);
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -64,8 +73,9 @@ export function HumanizerPanel() {
         content: result.output || "",
         timestamp: Date.now(),
       });
-    } catch (error) {
-      console.error("Humanize failed:", error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Humanize failed";
+      setError(message);
     } finally {
       setIsProcessing(false);
     }

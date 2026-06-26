@@ -24,6 +24,7 @@ export function DetectorPanel() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<"result" | "breakdown" | "spans" | "chat">("result");
   const [chatMessage, setChatMessage] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const detectMutation = useDetect();
 
@@ -32,8 +33,16 @@ export function DetectorPanel() {
   }, [inputText, toolId, setInputText]);
 
   const handleDetect = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim()) {
+      setError("Please enter text to detect.");
+      return;
+    }
+    if (inputText.length > 50000) {
+      setError("Text is too long. Maximum 50,000 characters allowed.");
+      return;
+    }
     setIsProcessing(true);
+    setError(null);
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -51,8 +60,9 @@ export function DetectorPanel() {
         content: `AI Detection Result: ${result?.result?.score ?? 0}% (${result?.result?.verdict ?? 'unknown'})`,
         timestamp: Date.now(),
       });
-    } catch (error) {
-      console.error("Detection failed:", error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Detection failed";
+      setError(message);
     } finally {
       setIsProcessing(false);
     }

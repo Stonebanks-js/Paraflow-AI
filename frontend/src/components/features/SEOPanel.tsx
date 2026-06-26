@@ -38,6 +38,7 @@ export function SEOPanel() {
   const [contentType, setContentType] = useState("blog");
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "keywords" | "recommendations" | "chat">("overview");
+  const [error, setError] = useState<string | null>(null);
 
   const seoMutation = useSEO();
 
@@ -46,11 +47,21 @@ export function SEOPanel() {
   }, [inputText, toolId, setInputText]);
 
   const handleOptimize = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim()) {
+      setError("Please enter text to optimize.");
+      return;
+    }
+    if (inputText.length > 50000) {
+      setError("Text is too long. Maximum 50,000 characters allowed.");
+      return;
+    }
     const keywordList = keywords.split(",").map((k) => k.trim()).filter(Boolean);
-    if (keywordList.length === 0) return;
-
+    if (keywordList.length === 0) {
+      setError("Please enter at least one target keyword.");
+      return;
+    }
     setIsProcessing(true);
+    setError(null);
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -72,8 +83,9 @@ export function SEOPanel() {
         content: "SEO analysis complete",
         timestamp: Date.now(),
       });
-    } catch (error) {
-      console.error("SEO optimization failed:", error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "SEO optimization failed";
+      setError(message);
     } finally {
       setIsProcessing(false);
     }

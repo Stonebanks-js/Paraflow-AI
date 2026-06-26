@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { TextEditor, CopyButton } from "@/components/common/TextEditor";
@@ -42,6 +43,9 @@ export function ParaphraserPanel() {
   const [activeTab, setActiveTab] = useState<"result" | "alternatives" | "metrics" | "chat">("result");
   const [alternatives, setAlternatives] = useState<string[]>([]);
   const [selectedAlternative, setSelectedAlternative] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [processingTime, setProcessingTime] = useState<number>(0);
+  const [creditsUsed, setCreditsUsed] = useState<number>(5);
 
   const paraphraseMutation = useParaphrase();
   const healthQuery = useHealthScore(outputText || inputText);
@@ -55,9 +59,18 @@ export function ParaphraserPanel() {
   }, [outputText, toolId, setOutputText]);
 
   const handleParaphrase = async () => {
-    if (!inputText.trim()) return;
+    if (!inputText.trim()) {
+      setError("Please enter text to paraphrase.");
+      return;
+    }
+    if (inputText.length > 50000) {
+      setError("Text is too long. Maximum 50,000 characters allowed.");
+      return;
+    }
     setIsProcessing(true);
     setAlternatives([]);
+    setError(null);
+    const startTime = Date.now();
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -73,30 +86,22 @@ export function ParaphraserPanel() {
         strength,
       });
 
-      setLocalOutputText(result.output || "");
+      const mainOutput = result.output || "";
+      setLocalOutputText(mainOutput);
+      setProcessingTime((Date.now() - startTime) / 1000);
 
-      // Generate 2 alternative versions
-      const alt1 = await paraphraseMutation.mutateAsync({
-        text: inputText,
-        mode: selectedMode,
-        strength: Math.min(100, strength + 20),
-      });
-      const alt2 = await paraphraseMutation.mutateAsync({
-        text: inputText,
-        mode: selectedMode,
-        strength: Math.max(0, strength - 20),
-      });
-      setAlternatives([result.output || "", alt1.output || "", alt2.output || ""]);
+      setAlternatives([mainOutput]);
       setSelectedAlternative(0);
 
       addMessage(toolId, {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: result.output || "",
+        content: mainOutput,
         timestamp: Date.now(),
       });
-    } catch (error) {
-      console.error("Paraphrase failed:", error);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Paraphrase failed";
+      setError(message);
     } finally {
       setIsProcessing(false);
     }
@@ -212,8 +217,8 @@ ${alternatives.map((alt, i) => `${i + 1}. ${alt}`).join('\n\n')}
     { label: "Expand More", action: () => setChatMessage("Expand with more detail") },
   ];
 
-  const processingTime = 3.2;
-  const creditsUsed = 5;
+  const processingTimeValue = processingTime;
+  const creditsUsedValue = creditsUsed;
 
   return (
     <div className="space-y-6">
@@ -233,11 +238,11 @@ ${alternatives.map((alt, i) => `${i + 1}. ${alt}`).join('\n\n')}
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Timer className="w-4 h-4" />
-                  <span>{processingTime}s</span>
+                  <span>{processingTimeValue.toFixed(1)}s</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Coins className="w-4 h-4" />
-                  <span>{creditsUsed} credits</span>
+                  <span>{creditsUsedValue} credits</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Type className="w-4 h-4" />
@@ -390,6 +395,16 @@ ${alternatives.map((alt, i) => `${i + 1}. ${alt}`).join('\n\n')}
                 <RotateCcw className="w-4 h-4" />
               </Button>
             </div>
+
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm"
+              >
+                {error}
+              </motion.div>
+            )}
           </CardContent>
         </Card>
 
