@@ -90,7 +90,12 @@ async def debug_settings():
         "DEMO_MODE": settings.DEMO_MODE,
         "SUPABASE_URL": settings.SUPABASE_URL,
         "SUPABASE_KEY": settings.SUPABASE_KEY,
-        "condition": settings.DEMO_MODE or not settings.SUPABASE_KEY
+        "condition": settings.DEMO_MODE or not settings.SUPABASE_KEY,
+        "NVIDIA_API_KEY_set": bool(settings.NVIDIA_API_KEY),
+        "NVIDIA_API_KEY_len": len(settings.NVIDIA_API_KEY) if settings.NVIDIA_API_KEY else 0,
+        "NVIDIA_BASE_URL": settings.NVIDIA_BASE_URL,
+        "NVIDIA_MODEL": settings.NVIDIA_MODEL,
+        "DEMO_MODE_config": settings.DEMO_MODE,
     }
 
 
