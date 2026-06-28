@@ -58,21 +58,29 @@ class SummarizeEngine(BaseAIEngine):
         instruction = style_instructions.get(style, style_instructions["concise"])
 
         try:
-            response = self._nvidia.client.chat.completions.create(
-                model=self._nvidia.model,
-                messages=[
-                    {"role": "system", "content": instruction},
-                    {"role": "user", "content": text},
-                ],
-                temperature=0.5,
-                top_p=0.9,
-                max_tokens=min(1024, max_length * 3),
+            import asyncio
+            loop = asyncio.get_event_loop()
+            response = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self._nvidia.client.chat.completions.create(
+                        model=self._nvidia.model,
+                        messages=[
+                            {"role": "system", "content": instruction},
+                            {"role": "user", "content": text},
+                        ],
+                        temperature=0.5,
+                        top_p=0.9,
+                        max_tokens=min(1024, max_length * 3),
+                    ),
+                ),
+                timeout=45.0,
             )
             output = (response.choices[0].message.content or "").strip()
             if not output:
                 return self._extractive_summary(text, max_length)
             return output
-        except Exception as e:
+        except (asyncio.TimeoutError, Exception) as e:
             logger.error(f"Summarize LLM call failed: {e}")
             return self._extractive_summary(text, max_length)
 

@@ -112,22 +112,30 @@ class GrammarEngine(BaseAIEngine):
 
         # Use chat completion with system + user role separation
         # We do NOT concatenate instruction with text - that would leak on fallback.
+        import asyncio
         try:
-            response = self._nvidia.client.chat.completions.create(
-                model=self._nvidia.model,
-                messages=[
-                    {"role": "system", "content": instruction},
-                    {"role": "user", "content": text},
-                ],
-                temperature=0.3,
-                top_p=0.9,
-                max_tokens=1024,
+            loop = asyncio.get_event_loop()
+            response = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self._nvidia.client.chat.completions.create(
+                        model=self._nvidia.model,
+                        messages=[
+                            {"role": "system", "content": instruction},
+                            {"role": "user", "content": text},
+                        ],
+                        temperature=0.3,
+                        top_p=0.9,
+                        max_tokens=1024,
+                    ),
+                ),
+                timeout=45.0,
             )
             output = (response.choices[0].message.content or "").strip()
             if not output:
                 return text
             return output
-        except Exception as e:
+        except (asyncio.TimeoutError, Exception) as e:
             logger.error(f"Grammar LLM call failed: {e}")
             if issues:
                 return self._apply_rule_fixes(text, issues)

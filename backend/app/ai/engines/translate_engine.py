@@ -58,15 +58,23 @@ class TranslateEngine(BaseAIEngine):
         )
 
         try:
-            response = self._nvidia.client.chat.completions.create(
-                model=self._nvidia.model,
-                messages=[
-                    {"role": "system", "content": instruction},
-                    {"role": "user", "content": input_text},
-                ],
-                temperature=0.3,
-                top_p=0.9,
-                max_tokens=1024,
+            import asyncio
+            loop = asyncio.get_event_loop()
+            response = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: self._nvidia.client.chat.completions.create(
+                        model=self._nvidia.model,
+                        messages=[
+                            {"role": "system", "content": instruction},
+                            {"role": "user", "content": input_text},
+                        ],
+                        temperature=0.3,
+                        top_p=0.9,
+                        max_tokens=1024,
+                    ),
+                ),
+                timeout=45.0,
             )
             translated = (response.choices[0].message.content or "").strip()
             if not translated:
@@ -79,7 +87,7 @@ class TranslateEngine(BaseAIEngine):
                 "confidence": 0.92,
                 "word_count_diff": len(translated.split()) - len(input_text.split()),
             }
-        except Exception as e:
+        except (asyncio.TimeoutError, Exception) as e:
             logger.error(f"Translate LLM call failed: {e}")
             return {
                 "status": "error",
