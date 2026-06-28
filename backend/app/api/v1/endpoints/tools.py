@@ -143,12 +143,12 @@ async def detect(
             return {
                 "job_id": str(uuid.uuid4()),
                 "status": "completed",
-                "result": DetectionResult(
-                    score=detection_result["score"],
-                    verdict=detection_result["verdict"],
-                    confidence=detection_result["confidence"],
-                    highlighted_spans=detection_result["highlighted_spans"],
-                ).model_dump(),
+                "result": {
+                    "score": detection_result["score"],
+                    "verdict": detection_result["verdict"],
+                    "confidence": detection_result["confidence"],
+                    "highlighted_spans": detection_result["highlighted_spans"],
+                },
             }
         return result
 
