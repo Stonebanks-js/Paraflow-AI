@@ -25,7 +25,7 @@ def _get_nvidia_client() -> Optional[OpenAI]:
         _client_cache[cache_key] = OpenAI(
             base_url=base_url,
             api_key=api_key,
-            timeout=30.0,
+            timeout=10.0,
             max_retries=0,
         )
     return _client_cache[cache_key]
@@ -174,13 +174,13 @@ class NVIDIAEngine(BaseAIEngine):
         # Use a separate thread for the blocking call to avoid blocking the event loop
         future = loop.run_in_executor(None, _do_call)
         try:
-            # 30s hard timeout - one NVIDIA call should not take longer
-            return await asyncio.wait_for(future, timeout=30.0)
+            # 10s hard timeout - if NVIDIA is slow, fall back to local engines
+            return await asyncio.wait_for(future, timeout=10.0)
         except asyncio.TimeoutError:
             # Cancel the future - it may not actually cancel a blocking C call,
             # but at least our event loop isn't stuck waiting on it
             future.cancel()
-            raise RuntimeError(f"NVIDIA call timed out after 30s")
+            raise RuntimeError("NVIDIA call timed out after 10s")
 
     def _build_system_prompt(self, options: Optional[dict]) -> str:
         mode = options.get("mode", "standard") if options else "standard"

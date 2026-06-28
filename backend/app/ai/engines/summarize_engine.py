@@ -74,7 +74,7 @@ class SummarizeEngine(BaseAIEngine):
                         max_tokens=min(1024, max_length * 3),
                     ),
                 ),
-                timeout=45.0,
+                timeout=10.0,
             )
             output = (response.choices[0].message.content or "").strip()
             if not output:

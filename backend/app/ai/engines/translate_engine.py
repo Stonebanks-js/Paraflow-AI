@@ -70,7 +70,7 @@ class TranslateEngine(BaseAIEngine):
                             max_tokens=1024,
                         ),
                     ),
-                    timeout=45.0,
+                    timeout=10.0,
                 )
                 translated = (response.choices[0].message.content or "").strip()
             except (asyncio.TimeoutError, Exception) as e:
