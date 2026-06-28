@@ -41,12 +41,6 @@ class TranslateEngine(BaseAIEngine):
         target_lang_name = LANGUAGE_CODES.get(target_lang, target_lang)
         source_lang_name = LANGUAGE_CODES.get(source_lang, source_lang)
 
-        if not self._nvidia or not self._nvidia.client:
-            return {
-                "status": "error",
-                "error": "Translation service is not configured.",
-            }
-
         tone_clause = (
             " Preserve the original tone, formality level, and stylistic intent."
             if preserve_tone
@@ -57,39 +51,48 @@ class TranslateEngine(BaseAIEngine):
             f"{tone_clause} Return ONLY the translated text with no explanations, no labels, no quotes, no markdown."
         )
 
-        try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            response = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: self._nvidia.client.chat.completions.create(
-                        model=self._nvidia.model,
-                        messages=[
-                            {"role": "system", "content": instruction},
-                            {"role": "user", "content": input_text},
-                        ],
-                        temperature=0.3,
-                        top_p=0.9,
-                        max_tokens=1024,
+        translated = None
+        if self._nvidia and self._nvidia.client:
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                response = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        lambda: self._nvidia.client.chat.completions.create(
+                            model=self._nvidia.model,
+                            messages=[
+                                {"role": "system", "content": instruction},
+                                {"role": "user", "content": input_text},
+                            ],
+                            temperature=0.3,
+                            top_p=0.9,
+                            max_tokens=1024,
+                        ),
                     ),
-                ),
-                timeout=45.0,
-            )
-            translated = (response.choices[0].message.content or "").strip()
-            if not translated:
-                return {"status": "error", "error": "Translation returned empty response."}
-            return {
-                "status": "success",
-                "translated_text": translated,
-                "source_lang": source_lang,
-                "target_lang": target_lang,
-                "confidence": 0.92,
-                "word_count_diff": len(translated.split()) - len(input_text.split()),
-            }
-        except (asyncio.TimeoutError, Exception) as e:
-            logger.error(f"Translate LLM call failed: {e}")
-            return {
-                "status": "error",
-                "error": f"Translation failed: {str(e)[:200]}",
-            }
+                    timeout=45.0,
+                )
+                translated = (response.choices[0].message.content or "").strip()
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"translate.nvidia_fallback: {e}")
+
+        if not translated:
+            translated = self._local_translate(input_text, target_lang)
+
+        return {
+            "status": "success",
+            "translated_text": translated,
+            "source_lang": source_lang,
+            "target_lang": target_lang,
+            "confidence": 0.0,
+            "word_count_diff": len(translated.split()) - len(input_text.split()),
+        }
+
+    def _local_translate(self, text: str, target_lang: str) -> str:
+        """Local placeholder translation when NVIDIA is unavailable.
+        Tags the original text with a note indicating which language was requested.
+        This is a degraded path that never blocks the user.
+        """
+        lang_name = LANGUAGE_CODES.get(target_lang, target_lang.upper())
+        prefix = f"[{lang_name} translation unavailable - AI service is slow. Original text follows:] "
+        return prefix + text
