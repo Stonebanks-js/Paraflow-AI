@@ -63,7 +63,7 @@ class GrammarEngine(BaseAIEngine):
             if error in text_lower:
                 pos = text_lower.find(error)
                 issues.append(GrammarIssue(
-                    type="spelling",
+                    issue_type="spelling",
                     message=f"Possible typo: '{error.strip()}'",
                     position=pos,
                     length=len(error),
@@ -75,7 +75,7 @@ class GrammarEngine(BaseAIEngine):
         for match in double_space:
             pos = text.find(match)
             issues.append(GrammarIssue(
-                type="spacing",
+                issue_type="spacing",
                 message="Double space found",
                 position=pos,
                 length=len(match),
