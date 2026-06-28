@@ -45,21 +45,53 @@ async def _run_tool(
     builder,
 ):
     """Common pipeline: validate, deduct, run, refund on failure."""
+    import time as _time
+    import structlog
+    t_request_start = _time.monotonic()
+    logger = structlog.get_logger()
+
+    def _log(stage, **extra):
+        elapsed = _time.monotonic() - t_request_start
+        logger.info(
+            "tool.timing",
+            tool=tool_name,
+            stage=stage,
+            elapsed=round(elapsed, 3),
+            **extra,
+        )
+
+    _log("start", text_len=len(text) if text else 0)
+
     if not text or not text.strip():
         raise HTTPException(status_code=422, detail="Text is required.")
+
+    _log("validated")
 
     billing = BillingService()
     cost = billing.get_tool_cost(tool_name)
 
+    t_deduct_start = _time.monotonic()
     has_sufficient = await billing.deduct_credits(user_id, cost, tool_name)
+    _log("billing_deducted", cost=cost, sufficient=has_sufficient, seconds=round(_time.monotonic() - t_deduct_start, 3))
+
     if not has_sufficient:
         raise HTTPException(status_code=402, detail="Insufficient credits")
 
     try:
+        t_engine_start = _time.monotonic()
         result = await builder()
+        engine_seconds = _time.monotonic() - t_engine_start
+        _log("engine_done", seconds=round(engine_seconds, 3), status=result.get("status"))
+
         if result.get("status") in ("success", "completed"):
+            timing = result.get("_timing") or {}
+            _log("response_sent", engine_seconds=round(engine_seconds, 3),
+                 nvidia_seconds=timing.get("nvidia_call_seconds"),
+                 total_seconds=round(_time.monotonic() - t_request_start, 3))
             return result
+
         await billing.refund_credits(user_id, cost, tool_name)
+        _log("engine_failed_refunded", error=result.get("error", "unknown"))
         raise HTTPException(
             status_code=500,
             detail=result.get("error", f"{tool_name} processing failed"),
@@ -68,6 +100,7 @@ async def _run_tool(
         raise
     except Exception as e:
         await billing.refund_credits(user_id, cost, tool_name)
+        _log("exception_refunded", error=str(e)[:200])
         raise HTTPException(status_code=500, detail=f"{tool_name} failed: {str(e)[:200]}")
 
 
