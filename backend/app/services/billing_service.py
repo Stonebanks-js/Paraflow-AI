@@ -133,7 +133,13 @@ class BillingService:
             return False
 
     async def refund_credits(self, user_id: str, amount: int, tool: str) -> bool:
-        return await self.add_credits(user_id, amount, f"refund_{tool}")
+        if self.demo_mode:
+            return True
+        try:
+            return await self.add_credits(user_id, amount, f"refund_{tool}")
+        except Exception as e:
+            logger.error(f"Refund failed for user {user_id}: {e}")
+            return False
 
     async def get_transactions(self, user_id: str, limit: int = 50) -> list:
         return []
