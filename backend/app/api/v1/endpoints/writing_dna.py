@@ -19,11 +19,20 @@ async def enroll_writing_dna(
     current_user = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
+    if not request.samples or len(request.samples) == 0:
+        raise HTTPException(status_code=422, detail="At least one writing sample is required.")
+
     demo_mode = settings.DEMO_MODE or not settings.SUPABASE_KEY
 
     if demo_mode:
+        # In demo mode, run the analyzer directly without persisting.
+        from app.services.writing_dna_service import WritingDNAService
         service = WritingDNAService(db)
-        analysis = await service._analyze_samples(request.samples)
+        try:
+            analysis = await service._analyze_samples(request.samples)
+        except Exception as e:
+            logger.error(f"WritingDNA analysis failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)[:200]}")
 
         return WritingDNAResponse(
             profile_id=str(uuid4()),
@@ -35,14 +44,19 @@ async def enroll_writing_dna(
                 tone_score=analysis["tone_score"],
                 burstiness_score=analysis["burstiness_score"],
                 rhythm_score=analysis["rhythm_score"],
-                structure_score=analysis["structure_score"]
+                structure_score=analysis["structure_score"],
             ),
             sample_count=len(request.samples),
-            is_active=True
+            is_active=True,
         )
 
+    from app.services.writing_dna_service import WritingDNAService
     service = WritingDNAService(db)
-    profile = await service.create_profile(current_user["id"], request.samples)
+    try:
+        profile = await service.create_profile(current_user["id"], request.samples)
+    except Exception as e:
+        logger.error(f"WritingDNA create_profile failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create profile: {str(e)[:200]}")
 
     return WritingDNAResponse(
         profile_id=profile.id,
@@ -54,10 +68,10 @@ async def enroll_writing_dna(
             tone_score=profile.tone_score,
             burstiness_score=profile.burstiness_score,
             rhythm_score=profile.rhythm_score,
-            structure_score=profile.structure_score
+            structure_score=profile.structure_score,
         ),
         sample_count=profile.sample_count,
-        is_active=profile.is_active
+        is_active=profile.is_active,
     )
 
 

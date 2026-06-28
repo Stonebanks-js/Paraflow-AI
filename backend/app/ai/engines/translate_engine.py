@@ -22,6 +22,7 @@ LANGUAGE_CODES = {
 class TranslateEngine(BaseAIEngine):
     def __init__(self):
         super().__init__()
+        self._nvidia = NVIDIAEngine()
 
     async def process(self, input_text: str, options: Optional[dict] = None) -> dict:
         if not self.validate_input(input_text):
@@ -32,23 +33,55 @@ class TranslateEngine(BaseAIEngine):
         preserve_tone = options.get("preserve_tone", True) if options else True
 
         if target_lang not in LANGUAGE_CODES:
-            return {"status": "error", "error": f"Unsupported language: {target_lang}. Supported: {list(LANGUAGE_CODES.keys())}"}
-
-        engine = NVIDIAEngine()
+            return {
+                "status": "error",
+                "error": f"Unsupported language: {target_lang}. Supported: {list(LANGUAGE_CODES.keys())}",
+            }
 
         target_lang_name = LANGUAGE_CODES.get(target_lang, target_lang)
+        source_lang_name = LANGUAGE_CODES.get(source_lang, source_lang)
 
-        prompt = f"Translate from {LANGUAGE_CODES.get(source_lang, source_lang)} to {target_lang_name}"
-        if preserve_tone:
-            prompt += ". Preserve the original tone, formality level, and stylistic intent exactly."
+        if not self._nvidia or not self._nvidia.client:
+            return {
+                "status": "error",
+                "error": "Translation service is not configured.",
+            }
 
-        result = await engine.process(f"{prompt}\n\n{input_text}", {"mode": "formal"})
+        tone_clause = (
+            " Preserve the original tone, formality level, and stylistic intent."
+            if preserve_tone
+            else ""
+        )
+        instruction = (
+            f"Translate the following text from {source_lang_name} to {target_lang_name}."
+            f"{tone_clause} Return ONLY the translated text with no explanations, no labels, no quotes, no markdown."
+        )
 
-        return {
-            "status": "success",
-            "translated_text": result.get("output", ""),
-            "source_lang": source_lang,
-            "target_lang": target_lang,
-            "confidence": 0.92,
-            "word_count_diff": len(result.get("output", "").split()) - len(input_text.split())
-        }
+        try:
+            response = self._nvidia.client.chat.completions.create(
+                model=self._nvidia.model,
+                messages=[
+                    {"role": "system", "content": instruction},
+                    {"role": "user", "content": input_text},
+                ],
+                temperature=0.3,
+                top_p=0.9,
+                max_tokens=1024,
+            )
+            translated = (response.choices[0].message.content or "").strip()
+            if not translated:
+                return {"status": "error", "error": "Translation returned empty response."}
+            return {
+                "status": "success",
+                "translated_text": translated,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
+                "confidence": 0.92,
+                "word_count_diff": len(translated.split()) - len(input_text.split()),
+            }
+        except Exception as e:
+            logger.error(f"Translate LLM call failed: {e}")
+            return {
+                "status": "error",
+                "error": f"Translation failed: {str(e)[:200]}",
+            }

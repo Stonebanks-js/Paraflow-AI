@@ -6,11 +6,30 @@ import structlog
 
 logger = structlog.get_logger()
 
+_client_cache: dict = {}
+
+
+def _get_nvidia_client() -> Optional[OpenAI]:
+    """Return a singleton OpenAI client configured for the NVIDIA API."""
+    api_key = settings.NVIDIA_API_KEY
+    base_url = settings.NVIDIA_BASE_URL
+    if not api_key or not base_url:
+        return None
+
+    cache_key = f"{api_key[:8]}:{base_url}"
+    if cache_key not in _client_cache:
+        _client_cache[cache_key] = OpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=60.0,
+            max_retries=1,
+        )
+    return _client_cache[cache_key]
+
 
 class NVIDIAEngine(BaseAIEngine):
     """
     NVIDIA AI Engine using OpenAI-compatible API.
-    Model: nvidia/nemotron-3-ultra-550b-a55b with reasoning support.
     """
 
     def __init__(self):
@@ -18,35 +37,34 @@ class NVIDIAEngine(BaseAIEngine):
         self.api_key = settings.NVIDIA_API_KEY
         self.model = settings.NVIDIA_MODEL
         self.base_url = settings.NVIDIA_BASE_URL
-        self.client = None
+        self.client = _get_nvidia_client()
 
-        if self.api_key and self.base_url:
-            self.client = OpenAI(
-                base_url=self.base_url,
-                api_key=self.api_key,
-                timeout=120.0,
-                max_retries=3,
-            )
-        else:
+        if not self.client:
             logger.error("NVIDIA API key or base URL not configured")
 
     async def process(self, input_text: str, options: Optional[dict] = None) -> dict:
-        """
-        Process text using NVIDIA AI with thinking enabled for better reasoning.
-        """
         if not self.validate_input(input_text):
             return {
                 "status": "error",
-                "error": "Invalid input",
+                "error": "Invalid input. Text must be between 1 and 50,000 characters.",
                 "error_code": "INVALID_INPUT",
             }
 
         if not self.client:
-            logger.warning("NVIDIA client not initialized - falling back to simulation")
-            return self._simulate_process(input_text, options)
+            return {
+                "status": "error",
+                "error": "AI service is not configured. Please contact support.",
+                "error_code": "SERVICE_UNAVAILABLE",
+            }
+
+        system_prompt = self._build_system_prompt(options)
 
         try:
-            system_prompt = self._build_system_prompt(options)
+            extra = {}
+            model_lower = (self.model or "").lower()
+            if "nemotron" in model_lower and "nano" not in model_lower:
+                extra["chat_template_kwargs"] = {"enable_thinking": False}
+                extra["reasoning_budget"] = 2048
 
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -54,74 +72,56 @@ class NVIDIAEngine(BaseAIEngine):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": input_text},
                 ],
-                temperature=1,
-                top_p=0.95,
-                max_tokens=4096,
-                extra_body={
-                    "chat_template_kwargs": {"enable_thinking": True},
-                    "reasoning_budget": 4096,
-                } if "nemotron" in self.model.lower() and "nano" not in self.model.lower() else {},
+                temperature=0.7,
+                top_p=0.9,
+                max_tokens=1024,
+                extra_body=extra or None,
             )
 
-            output = response.choices[0].message.content
-            usage = response.usage.model_dump() if response.usage else {}
+            output = (response.choices[0].message.content or "").strip()
+            if not output:
+                return {
+                    "status": "error",
+                    "error": "AI returned empty response. Please try again.",
+                    "error_code": "EMPTY_RESPONSE",
+                }
 
-            logger.info(
-                "NVIDIA AI processing successful",
-                model=self.model,
-                tokens_used=usage.get("total_tokens", 0),
-            )
+            usage = {}
+            if response.usage:
+                try:
+                    usage = response.usage.model_dump() if hasattr(response.usage, "model_dump") else {}
+                except Exception:
+                    usage = {}
 
             return {
                 "status": "success",
                 "output": output,
                 "model": self.model,
-                "tokens_used": usage.get("total_tokens", 0),
-                "reasoning_tokens": usage.get("reasoning_tokens", 0),
+                "tokens_used": int(usage.get("total_tokens", 0) or 0),
+                "reasoning_tokens": int(usage.get("reasoning_tokens", 0) or 0),
             }
 
         except Exception as e:
-            logger.warning(f"NVIDIA API error, falling back to simulation: {str(e)}")
-            return self._simulate_process(input_text, options)
-
-    def _simulate_process(self, input_text: str, options: Optional[dict] = None) -> dict:
-        """Simulation fallback when NVIDIA API is not available."""
-        mode = options.get("mode", "standard") if options else "standard"
-
-        transformations = {
-            "standard": "rewritten",
-            "fluency": "improved and made more natural",
-            "formal": "transformed into formal language",
-            "academic": "adapted to academic style",
-            "creative": "creatively reimagined",
-            "simple": "simplified for clarity",
-            "expand": "elaborated in detail",
-            "shorten": "condensed concisely",
-        }
-
-        transformed = f"[{transformations.get(mode, 'processed')} version]: {input_text}"
-
-        return {
-            "status": "success",
-            "output": transformed,
-            "model": "simulation",
-            "tokens_used": len(input_text.split()),
-        }
+            logger.error(f"NVIDIA API error: {str(e)}", exc_info=True)
+            return {
+                "status": "error",
+                "error": f"AI service error: {str(e)[:200]}",
+                "error_code": "NVIDIA_ERROR",
+            }
 
     def _build_system_prompt(self, options: Optional[dict]) -> str:
-        """Build system prompt based on mode and options."""
         mode = options.get("mode", "standard") if options else "standard"
         writing_dna = options.get("writing_dna") if options else None
 
         base_prompts = {
-            "standard": "You are a professional writer. Rewrite the following text maintaining its meaning but improving clarity and flow. Only provide the paraphrased text, no explanations.",
-            "fluency": "You are a fluency expert. Rewrite the text to be smooth and natural while preserving meaning. Only provide the paraphrased text.",
-            "formal": "You are a formal writing expert. Transform the text into formal, professional language. Only provide the transformed text.",
-            "academic": "You are an academic writing expert. Use scholarly tone and precise language. Only provide the adapted text.",
-            "creative": "You are a creative writer. Add creative flair while maintaining the core message. Only provide the creative version.",
-            "simple": "You are a clear communication expert. Simplify the language for broader accessibility. Only provide the simplified text.",
-            "expand": "You are an expansion writer. Elaborate on ideas while maintaining the original intent. Only provide the elaborated text.",
-            "shorten": "You are a concise writer. Reduce word count while preserving key information. Only provide the condensed text.",
+            "standard": "You are a professional writer. Rewrite the text preserving meaning, improving clarity and flow. Output only the rewritten text, no explanations, no labels, no markdown.",
+            "fluency": "You are a fluency expert. Rewrite the text so it flows smoothly and naturally while preserving meaning. Output only the rewritten text, no explanations, no labels, no markdown.",
+            "formal": "You are a formal writing expert. Transform the text into formal, professional language. Output only the transformed text, no explanations, no labels, no markdown.",
+            "academic": "You are an academic writing expert. Use scholarly tone and precise language. Output only the adapted text, no explanations, no labels, no markdown.",
+            "creative": "You are a creative writer. Add creative flair while keeping the core message. Output only the creative version, no explanations, no labels, no markdown.",
+            "simple": "You are a clear communication expert. Simplify the language for broader accessibility. Output only the simplified text, no explanations, no labels, no markdown.",
+            "expand": "You are an expansion writer. Elaborate on ideas while maintaining the original intent. Output only the elaborated text, no explanations, no labels, no markdown.",
+            "shorten": "You are a concise writer. Reduce word count while preserving key information. Output only the condensed text, no explanations, no labels, no markdown.",
         }
 
         prompt = base_prompts.get(mode, base_prompts["standard"])
@@ -132,50 +132,33 @@ class NVIDIAEngine(BaseAIEngine):
         return prompt
 
     async def stream(self, input_text: str, options: Optional[dict] = None):
-        """Stream response from NVIDIA AI with thinking."""
+        """Streaming is not used in the current frontend. Stub for compatibility."""
         if not self.validate_input(input_text):
             yield {"status": "error", "error": "Invalid input", "error_code": "INVALID_INPUT"}
             return
 
         if not self.client:
-            logger.warning("NVIDIA client not initialized - falling back to simulation")
-            simulated_output = self._simulate_process(input_text, options)["output"]
-            for char in simulated_output:
-                yield {"status": "success", "type": "content", "chunk": char}
+            yield {"status": "error", "error": "AI service not configured", "error_code": "SERVICE_UNAVAILABLE"}
             return
 
+        system_prompt = self._build_system_prompt(options)
         try:
-            system_prompt = self._build_system_prompt(options)
-
             stream = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": input_text},
                 ],
-                temperature=1,
-                top_p=0.95,
-                max_tokens=4096,
+                temperature=0.7,
+                top_p=0.9,
+                max_tokens=1024,
                 stream=True,
-                extra_body={
-                    "chat_template_kwargs": {"enable_thinking": True},
-                    "reasoning_budget": 4096,
-                } if "nemotron" in self.model.lower() and "nano" not in self.model.lower() else {},
             )
-
             for chunk in stream:
                 if not chunk.choices:
                     continue
-
-                reasoning = getattr(chunk.choices[0].delta, "reasoning_content", None)
-                if reasoning:
-                    yield {"status": "success", "type": "reasoning", "chunk": reasoning}
-
-                if chunk.choices[0].delta.content is not None:
-                    yield {"status": "success", "type": "content", "chunk": chunk.choices[0].delta.content}
-
+                content = getattr(chunk.choices[0].delta, "content", None)
+                if content:
+                    yield {"status": "success", "type": "content", "chunk": content}
         except Exception as e:
-            logger.warning(f"NVIDIA streaming error, falling back to simulation: {str(e)}")
-            simulated_output = self._simulate_process(input_text, options)["output"]
-            for char in simulated_output:
-                yield {"status": "success", "type": "content", "chunk": char}
+            yield {"status": "error", "error": str(e), "error_code": "NVIDIA_ERROR"}
