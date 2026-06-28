@@ -57,7 +57,7 @@ async def _run_tool(
 
     try:
         result = await builder()
-        if result.get("status") == "success":
+        if result.get("status") in ("success", "completed"):
             return result
         await billing.refund_credits(user_id, cost, tool_name)
         raise HTTPException(
@@ -99,7 +99,7 @@ async def paraphrase(
         text=request.text,
         builder=_build,
     )
-    return ParaphraseResponse(**res)
+    return res
 
 
 @router.post("/humanize", response_model=HumanizeResponse)
@@ -127,7 +127,7 @@ async def humanize(
         text=request.text,
         builder=_build,
     )
-    return HumanizeResponse(**res)
+    return res
 
 
 @router.post("/detect", response_model=DetectResponse)
@@ -158,7 +158,7 @@ async def detect(
         text=request.text,
         builder=_build,
     )
-    return DetectResponse(**res)
+    return res
 
 
 @router.post("/grammar", response_model=GrammarResponse)
@@ -184,7 +184,7 @@ async def grammar_check(
         text=request.text,
         builder=_build,
     )
-    return GrammarResponse(**res)
+    return res
 
 
 @router.post("/summarize", response_model=SummarizeResponse)
@@ -213,7 +213,7 @@ async def summarize(
         text=request.text,
         builder=_build,
     )
-    return SummarizeResponse(**res)
+    return res
 
 
 @router.post("/translate", response_model=TranslateResponse)
@@ -243,7 +243,7 @@ async def translate(
         text=request.text,
         builder=_build,
     )
-    return TranslateResponse(**res)
+    return res
 
 
 @router.post("/seo", response_model=SEOResponse)
@@ -272,7 +272,7 @@ async def seo_optimize(
         text=request.text,
         builder=_build,
     )
-    return SEOResponse(**res)
+    return res
 
 
 @router.post("/transform", response_model=TransformResponse)
