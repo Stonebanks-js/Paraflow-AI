@@ -97,59 +97,33 @@ def get_fallback_chain() -> List[str]:
 def _run_with_timeout(provider: BaseLLMProvider, request: LLMRequest, timeout: float) -> LLMResponse | LLMError:
     """Run a provider.generate() call under a hard wall-clock timeout.
 
-    The OpenAI/httpx calls are synchronous and would block the event loop.
-    We offload to an executor and wait at most `timeout` seconds.
-    Works whether or not we're already inside a running event loop.
+    The httpx calls are synchronous and would block the event loop.
+    We offload to a dedicated executor and wait at most `timeout` seconds.
     """
-    import asyncio
     import concurrent.futures
 
-    def _run_in_executor(loop):
-        return loop.run_in_executor(None, provider.generate, request)
-
-    try:
-        # Try to use the running event loop if there is one
+    # Use a dedicated executor so we don't compete with the FastAPI default
+    # thread pool. This also makes the timeout cancellation more reliable.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(provider.generate, request)
         try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-
-        if loop is not None:
-            # We're in an event loop - schedule the work
-            future = asyncio.run_coroutine_threadsafe(
-                asyncio.wait_for(_run_in_executor(loop), timeout=timeout),
-                loop,
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            return LLMError(
+                code="PROVIDER_TIMEOUT",
+                message=f"{provider.name} timed out after {timeout}s",
+                provider=provider.name,
+                retriable=True,
+                latency_seconds=timeout,
             )
-            try:
-                return future.result(timeout=timeout + 1.0)
-            except concurrent.futures.TimeoutError:
-                return LLMError(
-                    code="PROVIDER_TIMEOUT",
-                    message=f"{provider.name} timed out after {timeout}s",
-                    provider=provider.name,
-                    retriable=True,
-                    latency_seconds=timeout,
-                )
-            except Exception as e:
-                return LLMError(
-                    code="PROVIDER_ERROR",
-                    message=f"{provider.name} error: {str(e)[:200]}",
-                    provider=provider.name,
-                    retriable=True,
-                    latency_seconds=0.0,
-                )
-        else:
-            # No event loop - use asyncio.run() directly
-            return asyncio.run(_run_with_timeout_async(provider, request, timeout))
-
-    except Exception as e:
-        return LLMError(
-            code="PROVIDER_ERROR",
-            message=f"{provider.name} unexpected error: {str(e)[:200]}",
-            provider=provider.name,
-            retriable=True,
-            latency_seconds=0.0,
-        )
+        except Exception as e:
+            return LLMError(
+                code="PROVIDER_ERROR",
+                message=f"{provider.name} error: {str(e)[:200]}",
+                provider=provider.name,
+                retriable=True,
+                latency_seconds=0.0,
+            )
 
 
 def _quick_check_provider(provider: BaseLLMProvider) -> bool:
@@ -161,29 +135,6 @@ def _quick_check_provider(provider: BaseLLMProvider) -> bool:
         return client is not None
     except Exception:
         return False
-
-
-async def _run_with_timeout_async(provider: BaseLLMProvider, request: LLMRequest, timeout: float) -> LLMResponse | LLMError:
-    """Async helper used when no event loop is running."""
-    import asyncio
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    try:
-        return await asyncio.wait_for(
-            loop.run_in_executor(None, provider.generate, request),
-            timeout=timeout,
-        )
-    except asyncio.TimeoutError:
-        return LLMError(
-            code="PROVIDER_TIMEOUT",
-            message=f"{provider.name} timed out after {timeout}s",
-            provider=provider.name,
-            retriable=True,
-            latency_seconds=timeout,
-        )
 
 
 def generate_with_fallback(
