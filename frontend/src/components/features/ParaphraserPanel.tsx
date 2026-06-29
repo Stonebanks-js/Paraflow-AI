@@ -103,7 +103,10 @@ export function ParaphraserPanel() {
       });
     } catch (err) {
       console.error('[ParaphraserPanel] PARAPHRASE_ERROR', err);
-      const message = err instanceof Error ? err.message : "Paraphrase failed";
+      let message = err instanceof Error ? err.message : "Paraphrase failed";
+      if (message === 'Failed to fetch' || message === 'Network error') {
+        message = `Network error: Cannot reach API server. API_BASE = ${(window as unknown as { __API_URL__?: string }).__API_URL__ || 'unknown'}. Check NEXT_PUBLIC_API_URL on Vercel.`;
+      }
       setError(message);
     } finally {
       setIsProcessing(false);
