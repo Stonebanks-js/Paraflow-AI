@@ -49,9 +49,77 @@ async def lifespan(app: FastAPI):
         print(f"[STARTUP] Step 3 - Database init FAILED: {time.time() - t0:.3f}s")
 
     print(f"[STARTUP] Step 4 - About to yield: {time.time() - t0:.3f}s")
+
+    # Log LLM provider configuration on startup so the operator can see
+    # exactly which provider is active and which keys are loaded.
+    _log_llm_startup_config()
+
     yield
     print(f"[STARTUP] Step 5 - Shutdown: {time.time() - t0:.3f}s")
     logger.info("Paraflow AI shutting down")
+
+
+def _log_llm_startup_config() -> None:
+    """Print LLM provider status on startup so the operator can verify config."""
+    print()
+    print("=" * 60)
+    print("LLM PROVIDER CONFIGURATION")
+    print("=" * 60)
+
+    active = (settings.ACTIVE_PROVIDER or "").lower()
+    active_key = settings.OPENAI_API_KEY if active == "openai" else (
+        settings.GROQ_API_KEY if active == "groq" else (
+            settings.OPENROUTER_API_KEY if active == "openrouter" else (
+                settings.GEMINI_API_KEY if active == "gemini" else (
+                    settings.NVIDIA_API_KEY if active == "nvidia" else ""
+                )
+            )
+        )
+    )
+    active_model = settings.ACTIVE_MODEL
+    if not active_model and active == "groq":
+        active_model = settings.GROQ_MODEL
+    elif not active_model and active == "nvidia":
+        active_model = settings.NVIDIA_MODEL
+    elif not active_model and active == "openai":
+        active_model = "gpt-4o-mini"
+    elif not active_model and active == "openrouter":
+        active_model = settings.OPENROUTER_MODEL
+    elif not active_model and active == "gemini":
+        active_model = settings.GEMINI_MODEL
+
+    print(f"  ACTIVE_PROVIDER:   {active or '(none)'}")
+    print(f"  ACTIVE_MODEL:      {active_model or '(provider default)'}")
+    print(f"  LLM_TIMEOUT:       {settings.LLM_TIMEOUT_SECONDS}s")
+    print(f"  FALLBACK_CHAIN:    {', '.join(settings.fallback_providers_list) or '(none)'}")
+    print()
+    print("  Available providers:")
+    providers = [
+        ("openai", "OPENAI_API_KEY", bool(settings.OPENAI_API_KEY)),
+        ("groq", "GROQ_API_KEY", bool(settings.GROQ_API_KEY)),
+        ("openrouter", "OPENROUTER_API_KEY", bool(settings.OPENROUTER_API_KEY)),
+        ("gemini", "GEMINI_API_KEY", bool(settings.GEMINI_API_KEY)),
+        ("nvidia", "NVIDIA_API_KEY", bool(settings.NVIDIA_API_KEY)),
+    ]
+    for name, env_var, configured in providers:
+        status = "READY" if configured else "MISSING"
+        marker = " *" if name == active else "  "
+        print(f"  {marker} {name:12s} [{status:7s}] ({env_var})")
+    print("=" * 60)
+    print()
+
+    # Also emit structured logs so they appear in Render's log stream
+    logger.info(
+        "llm.config",
+        active_provider=active or None,
+        active_model=active_model or None,
+        timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
+        fallback_chain=settings.fallback_providers_list,
+        providers_available=[name for name, _, ok in providers if ok],
+        providers_missing=[name for name, _, ok in providers if not ok],
+        provider_selected=active or None,
+        model_selected=active_model or None,
+    )
 
 
 app = FastAPI(
