@@ -9,7 +9,7 @@ selection, fallbacks, timeouts, and error normalization.
 The service is intentionally synchronous (returns a dict) so that:
 - Engines remain simple `async def` methods
 - The same `generate_dict` works regardless of provider
-- Engines get the same dict shape they used to from the old `NVIDIAEngine`
+- Engines get a normalized dict shape regardless of provider
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def generate_dict(
 ) -> dict:
     """Call the active LLM provider (with fallback) and return a dict for engines.
 
-    Returns the same shape that the old `NVIDIAEngine.process` returned:
+    Returns a normalized dict shape regardless of provider:
     {
         "status": "success" | "error",
         "output": str,

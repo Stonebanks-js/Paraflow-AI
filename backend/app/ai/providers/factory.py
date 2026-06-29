@@ -19,7 +19,6 @@ import structlog
 from app.core.config import settings
 
 from .base import BaseLLMProvider, LLMRequest, LLMResponse, LLMError
-from .nvidia import NVIDIAProvider
 from .openai_provider import OpenAIProvider
 from .groq import GroqProvider
 from .openrouter import OpenRouterProvider
@@ -34,12 +33,6 @@ _provider_cache: dict[str, BaseLLMProvider] = {}
 def _build_provider(name: str) -> BaseLLMProvider:
     """Instantiate the provider for a given name. Throws ValueError on unknown name."""
     name = (name or "").lower().strip()
-    if name == "nvidia":
-        return NVIDIAProvider(
-            api_key=settings.NVIDIA_API_KEY,
-            base_url=settings.NVIDIA_BASE_URL,
-            default_model=settings.NVIDIA_MODEL,
-        )
     if name == "openai":
         return OpenAIProvider(
             api_key=settings.OPENAI_API_KEY,

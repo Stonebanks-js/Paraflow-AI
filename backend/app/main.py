@@ -67,20 +67,9 @@ def _log_llm_startup_config() -> None:
     print("=" * 60)
 
     active = (settings.ACTIVE_PROVIDER or "").lower()
-    active_key = settings.OPENAI_API_KEY if active == "openai" else (
-        settings.GROQ_API_KEY if active == "groq" else (
-            settings.OPENROUTER_API_KEY if active == "openrouter" else (
-                settings.GEMINI_API_KEY if active == "gemini" else (
-                    settings.NVIDIA_API_KEY if active == "nvidia" else ""
-                )
-            )
-        )
-    )
     active_model = settings.ACTIVE_MODEL
     if not active_model and active == "groq":
         active_model = settings.GROQ_MODEL
-    elif not active_model and active == "nvidia":
-        active_model = settings.NVIDIA_MODEL
     elif not active_model and active == "openai":
         active_model = "gpt-4o-mini"
     elif not active_model and active == "openrouter":
@@ -99,7 +88,6 @@ def _log_llm_startup_config() -> None:
         ("groq", "GROQ_API_KEY", bool(settings.GROQ_API_KEY)),
         ("openrouter", "OPENROUTER_API_KEY", bool(settings.OPENROUTER_API_KEY)),
         ("gemini", "GEMINI_API_KEY", bool(settings.GEMINI_API_KEY)),
-        ("nvidia", "NVIDIA_API_KEY", bool(settings.NVIDIA_API_KEY)),
     ]
     for name, env_var, configured in providers:
         status = "READY" if configured else "MISSING"
@@ -159,10 +147,6 @@ async def debug_settings():
         "SUPABASE_URL": settings.SUPABASE_URL,
         "SUPABASE_KEY": settings.SUPABASE_KEY,
         "condition": settings.DEMO_MODE or not settings.SUPABASE_KEY,
-        "NVIDIA_API_KEY_set": bool(settings.NVIDIA_API_KEY),
-        "NVIDIA_API_KEY_len": len(settings.NVIDIA_API_KEY) if settings.NVIDIA_API_KEY else 0,
-        "NVIDIA_BASE_URL": settings.NVIDIA_BASE_URL,
-        "NVIDIA_MODEL": settings.NVIDIA_MODEL,
         "ACTIVE_PROVIDER": settings.ACTIVE_PROVIDER,
         "ACTIVE_MODEL": settings.ACTIVE_MODEL,
         "FALLBACK_PROVIDERS": settings.fallback_providers_list,

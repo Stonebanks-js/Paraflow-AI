@@ -17,10 +17,6 @@ class Settings(BaseSettings):
     GOOGLE_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
 
-    NVIDIA_API_KEY: str = ""
-    NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
-    NVIDIA_MODEL: str = "nvidia/llama-3.1-nemotron-nano-8b-v1"
-
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
@@ -32,11 +28,11 @@ class Settings(BaseSettings):
 
     # Active LLM provider selection. Changing this and ACTIVE_MODEL switches the
     # engine layer to a different provider. No code changes required.
-    ACTIVE_PROVIDER: str = "nvidia"  # nvidia | openai | groq | openrouter | gemini
+    ACTIVE_PROVIDER: str = "groq"  # openai | groq | openrouter | gemini
     ACTIVE_MODEL: str = ""  # empty = use provider default
 
     # Auto-fallback chain: if the active provider fails, try these in order.
-    FALLBACK_PROVIDERS: str = "groq,gemini,openrouter"  # comma-separated
+    FALLBACK_PROVIDERS: str = "openrouter,gemini"  # comma-separated
 
     # LLM request timeout (seconds) - hard cap on each provider call
     LLM_TIMEOUT_SECONDS: float = 10.0

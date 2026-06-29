@@ -84,9 +84,7 @@ async def _run_tool(
         _log("engine_done", seconds=round(engine_seconds, 3), status=result.get("status"))
 
         if result.get("status") in ("success", "completed"):
-            timing = result.get("_timing") or {}
             _log("response_sent", engine_seconds=round(engine_seconds, 3),
-                 nvidia_seconds=timing.get("nvidia_call_seconds"),
                  total_seconds=round(_time.monotonic() - t_request_start, 3))
             return result
 

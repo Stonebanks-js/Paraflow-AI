@@ -1,7 +1,7 @@
 """Provider-agnostic LLM abstraction.
 
 Defines a common interface for all LLM providers. Each provider implementation
-(NVIDIA, OpenAI, Gemini, Groq, OpenRouter) returns a normalized response.
+(OpenAI, Groq, Gemini, OpenRouter) returns a normalized response.
 """
 from __future__ import annotations
 
