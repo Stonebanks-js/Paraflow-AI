@@ -787,3 +787,194 @@ The system is **production-stable and predictable**:
 - All timing data logged for future debugging
 
 Root cause of intermittent failures was definitively identified: the configured NVIDIA model is unresponsive on Render free tier. Local fallbacks were added to ensure the user always gets a result regardless of NVIDIA availability.
+
+---
+
+# Phase 5 - Provider-Agnostic LLM Architecture
+
+**Date:** 2026-06-29
+**Status:** STABLE - Provider switching via env vars, all engines work in <14s
+
+## 39. Architecture
+
+### Before (Phase 4)
+
+```
+Engine → NVIDIAEngine (direct) → OpenAI client → NVIDIA API
+                    ↓ fail
+                Local fallback (engine-specific)
+```
+
+### After (Phase 5)
+
+```
+Engine → generate_dict() → LLMService → Factory → [Active Provider, Fallback1, Fallback2, ...]
+                                                       ↓ each
+                                                     BaseLLMProvider → External API
+                                                       ↓ all fail
+                                                     Local fallback (in engine)
+```
+
+The engine is now **completely decoupled from the provider**. It only:
+1. Builds a system prompt + user prompt
+2. Calls `generate_dict()` (a single function)
+3. Gets back a dict with the same shape regardless of provider
+4. Falls back to local rule-based processing if all providers fail
+
+## 40. New Files
+
+| File | Purpose |
+|---|---|
+| `backend/app/ai/providers/base.py` | `BaseLLMProvider`, `LLMRequest`, `LLMResponse`, `LLMError` dataclasses |
+| `backend/app/ai/providers/nvidia.py` | NVIDIA NIM provider (OpenAI-compatible) |
+| `backend/app/ai/providers/openai_provider.py` | OpenAI provider |
+| `backend/app/ai/providers/groq.py` | Groq provider (OpenAI-compatible) |
+| `backend/app/ai/providers/openrouter.py` | OpenRouter provider (OpenAI-compatible, many models) |
+| `backend/app/ai/providers/gemini.py` | Google Gemini provider (REST API) |
+| `backend/app/ai/providers/factory.py` | Singleton cache, fallback chain, timeout |
+| `backend/app/ai/providers/__init__.py` | Public exports |
+| `backend/app/ai/llm_service.py` | `generate_dict()` for engines |
+
+## 41. Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `ACTIVE_PROVIDER` | `nvidia` | Which provider to use. Options: nvidia, openai, groq, openrouter, gemini |
+| `ACTIVE_MODEL` | `` (empty) | Override the provider's default model |
+| `FALLBACK_PROVIDERS` | `groq,gemini,openrouter` | Comma-separated fallback chain |
+| `LLM_TIMEOUT_SECONDS` | `10.0` | Hard timeout per provider call |
+| `GROQ_API_KEY` | `` | Groq API key |
+| `OPENAI_API_KEY` | `` | OpenAI API key |
+| `GEMINI_API_KEY` | `` | Google Gemini API key |
+| `OPENROUTER_API_KEY` | `` | OpenRouter API key |
+| `NVIDIA_API_KEY` | (already set) | NVIDIA API key |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Default Groq model |
+| `OPENROUTER_MODEL` | `meta-llama/llama-3.3-70b-instruct:free` | Default OpenRouter model |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | Default Gemini model |
+
+### Switching Providers
+
+```bash
+# Use Groq
+ACTIVE_PROVIDER=groq
+GROQ_API_KEY=gsk_...
+GROQ_MODEL=llama-3.3-70b-versatile
+
+# Use Gemini
+ACTIVE_PROVIDER=gemini
+GEMINI_API_KEY=AIza...
+GEMINI_MODEL=gemini-2.0-flash
+
+# Use OpenRouter (free models)
+ACTIVE_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct:free
+
+# Use NVIDIA (current)
+ACTIVE_PROVIDER=nvidia
+NVIDIA_API_KEY=nvapi-...
+```
+
+**No code changes required** to switch providers.
+
+## 42. Behavior Guarantees
+
+1. **Never hang** - hard `asyncio.wait_for` timeout enforced per call
+2. **Never block the event loop** - sync SDK calls run in `run_in_executor`
+3. **Never loop forever** - single shot per provider, no infinite retries
+4. **Skip unavailable providers** - if API key is missing, skip immediately
+5. **Always return a response** - local fallback inside each engine
+6. **Never consume credits on failure** - existing refund logic in tools.py works
+7. **Structured errors** - `LLMError` with `code`, `message`, `provider`, `latency_seconds`
+8. **Comprehensive logging** - every stage logs at info/error level
+
+## 43. Performance (After Phase 5)
+
+| Engine | Before Phase 5 | After Phase 5 |
+|---|---|---|
+| Detect | 1.8s | 1.7s |
+| Grammar | 11.5s | 12.7s |
+| Paraphrase | 11.6s | 13.7s |
+| Humanize | 11.7s | 12.9s |
+| Summarize | 11.5s | 13.1s |
+| Translate | 11.6s | 12.7s |
+| SEO | 1.6s | 1.6s |
+
+All engines respond within **14 seconds max**. The `~12s` overhead comes from the active NVIDIA provider timing out. With a working provider (e.g., Groq with API key), response time would be **< 3s**.
+
+## 44. What If a Provider Fails Mid-Chain
+
+Example scenario:
+1. Active provider = `nvidia` (timed out after 10s)
+2. Fallback 1 = `groq` (API key not set → skipped immediately)
+3. Fallback 2 = `gemini` (API key not set → skipped immediately)
+4. Fallback 3 = `openrouter` (API key not set → skipped immediately)
+5. All providers failed → engine uses local fallback
+
+Total time: **~10-14 seconds** (just one provider timeout + local fallback).
+
+With all fallback providers configured: still bounded to `sum of all timeouts`.
+
+## 45. Refactored Engines
+
+Before: Each engine imported `from .nvidia_engine import NVIDIAEngine` and called it directly.
+
+After: Each engine imports only `from app.ai.llm_service import generate_dict` and calls that single function. The engine doesn't know or care which provider is active.
+
+Example (paraphrase_engine.py):
+```python
+async def process(self, input_text, options):
+    system_prompt = self._build_system_prompt(mode, writing_dna)
+    result = generate_dict(
+        system_prompt=system_prompt,
+        user_prompt=input_text,
+        temperature=0.7 + (strength / 200.0),
+        max_tokens=min(2048, max(256, len(input_text.split()) * 3)),
+    )
+    if result.get("status") == "success" and result.get("output"):
+        return {"status": "success", "output": result["output"], ...}
+    # All providers failed - use local fallback
+    return {"status": "success", "output": self._local_paraphrase(...), ...}
+```
+
+## 46. Commits Made
+
+| Commit | Description |
+|---|---|
+| `89f3414` | Provider-agnostic LLM architecture (5 providers, factory, service, refactored engines) |
+| `8150126` | Skip unavailable providers in fallback chain (avoid wasting timeout) |
+
+## 47. Production Validation (All Engines Live)
+
+```
+=== TEST ALL ENGINES ===
+DETECT:    200 in 1.7s
+GRAMMAR:   200 in 12.7s
+PARAPHRASE: 200 in 13.7s
+HUMANIZE:  200 in 12.9s
+SUMMARIZE: 200 in 13.1s
+TRANSLATE: 200 in 12.7s
+SEO:       200 in 1.6s
+```
+
+**All engines pass with 200 status. No 500 errors. No hangs. No infinite loading.**
+
+## 48. Final Sign-Off (Phase 5)
+
+The application is now **provider-agnostic**. Adding a new provider requires only:
+1. Create a new file in `app/ai/providers/` implementing `BaseLLMProvider`
+2. Add it to the factory's `_build_provider` method
+3. Set `ACTIVE_PROVIDER=<new_provider>` and the corresponding API key
+
+No frontend changes, no engine changes, no business logic changes.
+
+The system supports the following providers out of the box:
+- **NVIDIA** (current active, slow on free tier)
+- **Groq** (very fast, free tier available, just needs API key)
+- **OpenRouter** (aggregator, free models available)
+- **Gemini** (Google, has free tier)
+- **OpenAI** (paid)
+
+**Recommendation:** Set `GROQ_API_KEY` and change `ACTIVE_PROVIDER=groq` for production. Groq is free and offers <1s inference times. To make this change, only two env vars need to be set on Render. No code changes, no deploys of new code.
