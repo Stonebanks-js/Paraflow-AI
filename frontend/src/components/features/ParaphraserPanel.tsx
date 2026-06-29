@@ -80,11 +80,13 @@ export function ParaphraserPanel() {
     });
 
     try {
+      console.log('[ParaphraserPanel] BUTTON_CLICKED', { textLen: inputText.length, mode: selectedMode, strength });
       const result = await paraphraseMutation.mutateAsync({
         text: inputText,
         mode: selectedMode,
         strength,
       });
+      console.log('[ParaphraserPanel] RESPONSE_RECEIVED', { hasOutput: !!result.output, model: result.model });
 
       const mainOutput = result.output || "";
       setLocalOutputText(mainOutput);
@@ -100,6 +102,7 @@ export function ParaphraserPanel() {
         timestamp: Date.now(),
       });
     } catch (err) {
+      console.error('[ParaphraserPanel] PARAPHRASE_ERROR', err);
       const message = err instanceof Error ? err.message : "Paraphrase failed";
       setError(message);
     } finally {

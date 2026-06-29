@@ -2,6 +2,7 @@ import { getAccessToken } from './auth-service'
 
 const API_BASE = (() => {
   const env = process.env.NEXT_PUBLIC_API_URL
+  console.log('[api.ts] NEXT_PUBLIC_API_URL =', JSON.stringify(env))
   if (env && env.length > 0) return env.replace(/\/$/, '')
   if (typeof window !== 'undefined') {
     const { protocol, hostname } = window.location
@@ -13,6 +14,9 @@ const API_BASE = (() => {
 })()
 
 const API_BASE_WITH_SLASH = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/api`
+
+console.log('[api.ts] API_BASE =', API_BASE)
+console.log('[api.ts] API_BASE_WITH_SLASH =', API_BASE_WITH_SLASH)
 
 interface FetchOptions extends RequestInit {
   token?: string
@@ -37,15 +41,20 @@ export async function apiFetch<T>(
   if (!authToken) {
     try {
       authToken = (await getAccessToken()) ?? undefined
-    } catch {
+    } catch (err) {
+      console.warn('[api.ts] getAccessToken() threw:', err)
       authToken = undefined
     }
   }
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`
+  } else {
+    console.warn('[api.ts] NO AUTH TOKEN for', endpoint)
   }
 
   const url = `${API_BASE_WITH_SLASH}${endpoint}`
+  const method = (fetchOptions.method as string) || 'GET'
+  console.log('[api.ts] REQUEST', method, url, 'hasToken:', !!authToken)
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30000)
@@ -59,12 +68,15 @@ export async function apiFetch<T>(
     })
   } catch (err) {
     clearTimeout(timeout)
+    console.error('[api.ts] FETCH ERROR', method, url, err)
     if (err instanceof Error && err.name === 'AbortError') {
       throw new Error('Request timed out. Please try again.')
     }
     throw new Error(err instanceof Error ? err.message : 'Network error')
   }
   clearTimeout(timeout)
+
+  console.log('[api.ts] RESPONSE', method, url, 'status:', response.status)
 
   if (!response.ok) {
     let detail = `HTTP ${response.status}`
@@ -78,6 +90,7 @@ export async function apiFetch<T>(
     } catch {
       /* ignore */
     }
+    console.error('[api.ts] ERROR RESPONSE', method, url, 'status:', response.status, 'detail:', detail)
     throw new Error(detail)
   }
 
