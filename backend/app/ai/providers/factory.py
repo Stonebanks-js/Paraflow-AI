@@ -159,6 +159,17 @@ def _run_with_timeout(provider: BaseLLMProvider, request: LLMRequest, timeout: f
         )
 
 
+def _quick_check_provider(provider: BaseLLMProvider) -> bool:
+    """Skip the provider if it can't be initialized (e.g., missing API key).
+    Avoids wasting 10s on a provider that will just immediately fail.
+    """
+    try:
+        client = provider._get_client()
+        return client is not None
+    except Exception:
+        return False
+
+
 async def _run_with_timeout_async(provider: BaseLLMProvider, request: LLMRequest, timeout: float) -> LLMResponse | LLMError:
     """Async helper used when no event loop is running."""
     import asyncio
@@ -193,6 +204,8 @@ def generate_with_fallback(
     Returns the first LLMResponse that comes back, or the last LLMError.
     Never raises. Each provider is given a single shot with the timeout - no retries
     by default, to keep total latency bounded across the fallback chain.
+
+    Providers without a valid API key are skipped immediately (don't waste timeout).
     """
     if timeout is None:
         timeout = settings.LLM_TIMEOUT_SECONDS
@@ -208,6 +221,11 @@ def generate_with_fallback(
             provider = get_provider(provider_name)
         except Exception as e:
             logger.warning("provider.unavailable", provider=provider_name, error=str(e))
+            continue
+
+        # Skip providers that can't be initialized (no API key configured)
+        if not _quick_check_provider(provider):
+            logger.debug("provider.skipped", provider=provider_name, reason="client_init_failed")
             continue
 
         # Single shot per provider - keep latency bounded

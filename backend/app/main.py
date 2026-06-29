@@ -95,7 +95,14 @@ async def debug_settings():
         "NVIDIA_API_KEY_len": len(settings.NVIDIA_API_KEY) if settings.NVIDIA_API_KEY else 0,
         "NVIDIA_BASE_URL": settings.NVIDIA_BASE_URL,
         "NVIDIA_MODEL": settings.NVIDIA_MODEL,
-        "DEMO_MODE_config": settings.DEMO_MODE,
+        "ACTIVE_PROVIDER": settings.ACTIVE_PROVIDER,
+        "ACTIVE_MODEL": settings.ACTIVE_MODEL,
+        "FALLBACK_PROVIDERS": settings.fallback_providers_list,
+        "LLM_TIMEOUT_SECONDS": settings.LLM_TIMEOUT_SECONDS,
+        "GROQ_API_KEY_set": bool(settings.GROQ_API_KEY),
+        "OPENAI_API_KEY_set": bool(settings.OPENAI_API_KEY),
+        "GEMINI_API_KEY_set": bool(settings.GEMINI_API_KEY),
+        "OPENROUTER_API_KEY_set": bool(settings.OPENROUTER_API_KEY),
     }
 
 
