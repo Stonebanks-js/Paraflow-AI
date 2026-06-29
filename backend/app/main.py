@@ -67,46 +67,27 @@ def _log_llm_startup_config() -> None:
     print("=" * 60)
 
     active = (settings.ACTIVE_PROVIDER or "").lower()
-    active_model = settings.ACTIVE_MODEL
-    if not active_model and active == "groq":
-        active_model = settings.GROQ_MODEL
-    elif not active_model and active == "openai":
-        active_model = "gpt-4o-mini"
-    elif not active_model and active == "openrouter":
-        active_model = settings.OPENROUTER_MODEL
-    elif not active_model and active == "gemini":
-        active_model = settings.GEMINI_MODEL
+    active_model = settings.ACTIVE_MODEL or settings.GEMINI_MODEL
+    gemini_ready = bool(settings.GEMINI_API_KEY)
 
-    print(f"  ACTIVE_PROVIDER:   {active or '(none)'}")
-    print(f"  ACTIVE_MODEL:      {active_model or '(provider default)'}")
-    print(f"  LLM_TIMEOUT:       {settings.LLM_TIMEOUT_SECONDS}s")
-    print(f"  FALLBACK_CHAIN:    {', '.join(settings.fallback_providers_list) or '(none)'}")
+    print(f"  provider.selected:  {active or '(none)'}")
+    print(f"  model.selected:     {active_model or '(provider default)'}")
+    print(f"  LLM_TIMEOUT:        {settings.LLM_TIMEOUT_SECONDS}s")
+    print(f"  provider.initialized: gemini={'READY' if gemini_ready else 'MISSING'}")
     print()
-    print("  Available providers:")
-    providers = [
-        ("openai", "OPENAI_API_KEY", bool(settings.OPENAI_API_KEY)),
-        ("groq", "GROQ_API_KEY", bool(settings.GROQ_API_KEY)),
-        ("openrouter", "OPENROUTER_API_KEY", bool(settings.OPENROUTER_API_KEY)),
-        ("gemini", "GEMINI_API_KEY", bool(settings.GEMINI_API_KEY)),
-    ]
-    for name, env_var, configured in providers:
-        status = "READY" if configured else "MISSING"
-        marker = " *" if name == active else "  "
-        print(f"  {marker} {name:12s} [{status:7s}] ({env_var})")
+    print(f"  {('*' if gemini_ready else ' ')} gemini         [{'READY  ' if gemini_ready else 'MISSING'}] (GEMINI_API_KEY)")
     print("=" * 60)
     print()
 
     # Also emit structured logs so they appear in Render's log stream
     logger.info(
         "llm.config",
-        active_provider=active or None,
-        active_model=active_model or None,
-        timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
-        fallback_chain=settings.fallback_providers_list,
-        providers_available=[name for name, _, ok in providers if ok],
-        providers_missing=[name for name, _, ok in providers if not ok],
         provider_selected=active or None,
         model_selected=active_model or None,
+        timeout_seconds=settings.LLM_TIMEOUT_SECONDS,
+        providers_available=["gemini"] if gemini_ready else [],
+        providers_missing=[] if gemini_ready else ["gemini"],
+        provider_initialized=gemini_ready,
     )
 
 
@@ -148,13 +129,9 @@ async def debug_settings():
         "SUPABASE_KEY": settings.SUPABASE_KEY,
         "condition": settings.DEMO_MODE or not settings.SUPABASE_KEY,
         "ACTIVE_PROVIDER": settings.ACTIVE_PROVIDER,
-        "ACTIVE_MODEL": settings.ACTIVE_MODEL,
-        "FALLBACK_PROVIDERS": settings.fallback_providers_list,
+        "ACTIVE_MODEL": settings.ACTIVE_MODEL or settings.GEMINI_MODEL,
         "LLM_TIMEOUT_SECONDS": settings.LLM_TIMEOUT_SECONDS,
-        "GROQ_API_KEY_set": bool(settings.GROQ_API_KEY),
-        "OPENAI_API_KEY_set": bool(settings.OPENAI_API_KEY),
         "GEMINI_API_KEY_set": bool(settings.GEMINI_API_KEY),
-        "OPENROUTER_API_KEY_set": bool(settings.OPENROUTER_API_KEY),
     }
 
 

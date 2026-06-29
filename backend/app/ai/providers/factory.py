@@ -1,13 +1,13 @@
 """Provider factory and runner.
 
-Provides:
-- `get_provider(name)`: returns a singleton provider by name
-- `get_active_provider()`: returns the configured ACTIVE_PROVIDER
-- `generate_with_fallback(request)`: tries active then fallback chain
+Gemini is the ONLY active LLM provider. This factory preserves the
+provider abstraction (BaseLLMProvider) so future providers can be added
+without touching engine code, but the current implementation only
+registers Gemini.
 
-Engines should call `get_active_provider().generate(request)` and handle the
-LLMResponse or LLMError returned. They should NOT need to know which provider
-is active.
+Engines should call `get_active_provider().generate(request)` and handle
+the LLMResponse or LLMError returned. They should NOT need to know which
+provider is active.
 """
 from __future__ import annotations
 
@@ -19,9 +19,6 @@ import structlog
 from app.core.config import settings
 
 from .base import BaseLLMProvider, LLMRequest, LLMResponse, LLMError
-from .openai_provider import OpenAIProvider
-from .groq import GroqProvider
-from .openrouter import OpenRouterProvider
 from .gemini import GeminiProvider
 
 logger = structlog.get_logger()
@@ -33,21 +30,6 @@ _provider_cache: dict[str, BaseLLMProvider] = {}
 def _build_provider(name: str) -> BaseLLMProvider:
     """Instantiate the provider for a given name. Throws ValueError on unknown name."""
     name = (name or "").lower().strip()
-    if name == "openai":
-        return OpenAIProvider(
-            api_key=settings.OPENAI_API_KEY,
-            default_model=settings.ACTIVE_MODEL or "gpt-4o-mini",
-        )
-    if name == "groq":
-        return GroqProvider(
-            api_key=settings.GROQ_API_KEY,
-            default_model=settings.ACTIVE_MODEL or settings.GROQ_MODEL,
-        )
-    if name == "openrouter":
-        return OpenRouterProvider(
-            api_key=settings.OPENROUTER_API_KEY,
-            default_model=settings.ACTIVE_MODEL or settings.OPENROUTER_MODEL,
-        )
     if name == "gemini":
         return GeminiProvider(
             api_key=settings.GEMINI_API_KEY,
@@ -72,7 +54,7 @@ def get_provider(name: str) -> BaseLLMProvider:
 
 
 def get_active_provider() -> BaseLLMProvider:
-    """Return the singleton active provider based on ACTIVE_PROVIDER."""
+    """Return the singleton active provider (Gemini)."""
     return get_provider(settings.ACTIVE_PROVIDER)
 
 
@@ -84,14 +66,9 @@ def reset_provider_cache():
 
 
 def get_fallback_chain() -> List[str]:
-    """Return the ordered list of fallback provider names (excluding the active one)."""
-    active = (settings.ACTIVE_PROVIDER or "").lower()
-    chain = []
-    for name in settings.fallback_providers_list:
-        n = name.lower()
-        if n != active:
-            chain.append(n)
-    return chain
+    """Return the fallback chain. Always empty because Gemini is the only
+    provider. Kept for API compatibility with the engine layer."""
+    return []
 
 
 def _run_with_timeout(provider: BaseLLMProvider, request: LLMRequest, timeout: float) -> LLMResponse | LLMError:
@@ -102,8 +79,6 @@ def _run_with_timeout(provider: BaseLLMProvider, request: LLMRequest, timeout: f
     """
     import concurrent.futures
 
-    # Use a dedicated executor so we don't compete with the FastAPI default
-    # thread pool. This also makes the timeout cancellation more reliable.
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(provider.generate, request)
         try:
@@ -127,9 +102,7 @@ def _run_with_timeout(provider: BaseLLMProvider, request: LLMRequest, timeout: f
 
 
 def _quick_check_provider(provider: BaseLLMProvider) -> bool:
-    """Skip the provider if it can't be initialized (e.g., missing API key).
-    Avoids wasting 10s on a provider that will just immediately fail.
-    """
+    """Skip the provider if it can't be initialized (e.g., missing API key)."""
     try:
         client = provider._get_client()
         return client is not None
@@ -146,15 +119,15 @@ def generate_with_fallback(
     """Run the request against the active provider, then fallback chain on failure.
 
     Returns the first LLMResponse that comes back, or the last LLMError.
-    Never raises. Each provider is given a single shot with the timeout - no retries
-    by default, to keep total latency bounded across the fallback chain.
+    Never raises. Each provider is given a single shot with the timeout.
 
-    Providers without a valid API key are skipped immediately (don't waste timeout).
+    With Gemini as the only provider, the fallback chain is empty and
+    we go straight to Gemini. If Gemini fails, the engine's local
+    fallback kicks in.
     """
     if timeout is None:
         timeout = settings.LLM_TIMEOUT_SECONDS
 
-    # Try the active provider first, then the configured fallback chain
     attempts = [settings.ACTIVE_PROVIDER] + get_fallback_chain()
 
     last_error: Optional[LLMError] = None
@@ -167,12 +140,10 @@ def generate_with_fallback(
             logger.warning("provider.unavailable", provider=provider_name, error=str(e))
             continue
 
-        # Skip providers that can't be initialized (no API key configured)
         if not _quick_check_provider(provider):
             logger.debug("provider.skipped", provider=provider_name, reason="client_init_failed")
             continue
 
-        # Single shot per provider - keep latency bounded
         result = _run_with_timeout(provider, request, timeout=timeout)
         if isinstance(result, LLMResponse):
             if provider_name != settings.ACTIVE_PROVIDER:
