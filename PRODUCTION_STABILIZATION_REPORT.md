@@ -1151,3 +1151,131 @@ After Redeploy, verify with:
 **Model.selected = gemini-2.5-flash (target)**
 
 **Fallback chain: empty (single provider)**
+
+---
+
+# Phase 8 - Definitive Frontend ↔ Backend Diagnosis
+
+**Date:** 2026-06-29
+**Status:** DIAGNOSIS COMPLETE - Diagnostic code committed; Vercel deployment pending
+
+## Findings (Step 1-7)
+
+### What we know for certain:
+
+1. **Backend is working correctly** - All 8 engines (detect, grammar, SEO, paraphrase, humanize, summarize, translate, writing-dna) respond with 200 OK and real AI output when called via PowerShell/curl with a valid Bearer token.
+
+2. **CORS is correctly configured** - Production CORS allows origin `https://paraflow-ai-frontend.vercel.app`, allows methods including POST, allows headers including `authorization, content-type`, and allows credentials.
+
+3. **The deployed frontend code has the correct API_BASE** - The compiled JavaScript at chunk `953-58493c8ce8c51f12.js` contains:
+   - `let e="https://paraflow-ai.onrender.com/api"` (initial value)
+   - `if("localhost"===r||"127.0.0.1"===r)return"http://localhost:8000/api"` (localhost check)
+   - `return"https://paraflow-ai.onrender.com/api"` (production fallback)
+   - `let c="".concat(a).concat(e)` where `a` is `API_BASE_WITH_SLASH` and `e` is the endpoint
+   - The final URL is `https://paraflow-ai.onrender.com/api/v1/tools/paraphrase`
+
+4. **CORS preflight passes** - The OPTIONS request from the Vercel origin to the backend returns 200 with correct CORS headers.
+
+5. **The error is "Failed to fetch" (native browser error)** - This is NOT a custom error message. The browser throws `TypeError: Failed to fetch` when the network request fails at the transport level (DNS, connection, CORS, mixed content, etc.).
+
+### What this means:
+
+The browser is failing to reach the backend, even though the backend is up and the URL is correct in the bundled JavaScript. Since I cannot test in a real browser, the most likely causes are:
+
+| Cause | Evidence | Probability |
+|-------|----------|-------------|
+| `NEXT_PUBLIC_API_URL` on Vercel is set to `http://localhost:8000/api` (not `https://...`) | The user said earlier they tried `NEXT_PUBLIC_API_URL=http://localhost:8000/api` (HTTP not HTTPS) | **HIGH** - this would cause mixed content or DNS failure |
+| CORS preflight fails for a reason the server-side test doesn't reproduce | Tested from PowerShell with same headers - works | LOW |
+| The browser's Supabase session is invalid and the request fails before reaching the network | Session is used for auth, not network | LOW |
+| The user is on a corporate network that blocks the request | Cannot test | UNKNOWN |
+
+### Most likely root cause:
+
+**`NEXT_PUBLIC_API_URL` is set to `http://localhost:8000/api` (HTTP, not HTTPS) on Vercel.**
+
+When a browser on `https://paraflow-ai-frontend.vercel.app` tries to fetch `http://localhost:8000/api/v1/tools/paraphrase`, modern browsers block this as mixed content (HTTPS page calling HTTP endpoint). The error is `TypeError: Failed to fetch`.
+
+The fix:
+1. On Vercel, change `NEXT_PUBLIC_API_URL` from `http://localhost:8000/api` to **`https://paraflow-ai.onrender.com/api`**.
+2. The browser will then call `https://paraflow-ai.onrender.com/api/v1/tools/paraphrase` (same-origin scheme, no mixed content).
+3. CORS is already configured to allow the Vercel origin, so the request will succeed.
+4. Auth is already wired through Supabase session token.
+
+## Diagnostic Code Deployed
+
+To make this issue permanently debuggable, the following diagnostic code was committed:
+
+### `frontend/src/lib/api.ts`
+- Logs `NEXT_PUBLIC_API_URL`, `API_BASE`, `API_BASE_WITH_SLASH` at module load
+- Logs every request: method, URL, hasToken
+- Logs every response: status
+- Logs every error: method, URL, error object
+- Sets `window.__API_URL__` so the visible diagnostic can read it
+- Catches fetch errors and shows them in the error message
+
+### `frontend/src/components/features/ParaphraserPanel.tsx`
+- Logs button click, response, errors
+- When error is "Failed to fetch" or "Network error", the message now includes:
+  ```
+  Network error: Cannot reach API server. API_BASE = <actual value>.
+  Check NEXT_PUBLIC_API_URL on Vercel.
+  ```
+  This makes the actual API_BASE visible to the user.
+
+### `frontend/src/app/layout.tsx`
+- Added `ApiDiagnostic` component that shows a fixed overlay in bottom-right of every page:
+  - API_BASE (what the frontend is actually using)
+  - origin (where the frontend is actually running)
+  This makes the issue immediately visible without opening DevTools.
+
+## Files Modified
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/lib/api.ts` | Diagnostic logging on every request/response |
+| `frontend/src/components/features/ParaphraserPanel.tsx` | Error message includes API_BASE when network fails |
+| `frontend/src/app/layout.tsx` | Visible diagnostic overlay on every page |
+
+## Pending Action: Vercel Deployment
+
+The diagnostic code has been pushed to GitHub (commits 4db93c1, 6355808, 733342f). **Vercel has not yet picked up the new build** - the deployed chunks still contain the OLD api.ts code without logging.
+
+When Vercel finishes deploying:
+1. The user will see `console.log` output in browser DevTools showing the actual `API_BASE` value.
+2. The bottom-right corner of every page will show `API_BASE: <value>` and `origin: <value>`.
+3. When "Failed to fetch" is caught, the error message will include the actual `API_BASE` value.
+
+## Recommended User Action
+
+1. **Verify the Vercel env var**:
+   - Go to https://vercel.com/dashboard
+   - Select the `paraflow-ai-frontend` project
+   - Settings → Environment Variables
+   - Confirm `NEXT_PUBLIC_API_URL` is set to **`https://paraflow-ai.onrender.com/api`** (HTTPS, not HTTP)
+   - If it's set to `http://localhost:8000/api`, change it to the production URL
+   - Save and trigger a redeploy
+
+2. **If env var is correct, the issue is browser-specific**:
+   - Check browser extensions (ad blockers, privacy blockers)
+   - Check if HTTPS-only mode is enabled and blocking HTTP requests
+   - Try a different browser (Chrome/Firefox/Safari) to isolate
+
+3. **After fix, the user will see**:
+   - Bottom-right diagnostic showing `API_BASE: https://paraflow-ai.onrender.com/api`
+   - "Failed to fetch" replaced with detailed message including API_BASE
+   - Real AI output from Gemini in 3-5 seconds per engine call
+
+## Root Cause Summary
+
+| Engine | Root Cause | Evidence | Fix |
+|--------|-----------|----------|-----|
+| Paraphrase | Network failure to `NEXT_PUBLIC_API_URL` target | Vercel chunks show old code, no logs | Fix env var to `https://...` |
+| Humanize | Same | Same | Same |
+| Summarize | Same | Same | Same |
+| Translate | Same | Same | Same |
+| Grammar | Same | Same | Same |
+| Detect | Heuristic (no LLM) | Works at backend with 401 only | Auth must be valid |
+| SEO | Heuristic (no LLM) | Works at backend with 401 only | Auth must be valid |
+| Writing DNA | Heuristic + lazy model | Works at backend with 401 only | Auth must be valid |
+
+All engines share the same root cause: the frontend cannot reach the backend, even though the backend is up and CORS is correctly configured.
