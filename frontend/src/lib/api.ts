@@ -18,6 +18,10 @@ const API_BASE_WITH_SLASH = API_BASE.endsWith('/api') ? API_BASE : `${API_BASE}/
 console.log('[api.ts] API_BASE =', API_BASE)
 console.log('[api.ts] API_BASE_WITH_SLASH =', API_BASE_WITH_SLASH)
 
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __API_URL__?: string }).__API_URL__ = API_BASE
+}
+
 interface FetchOptions extends RequestInit {
   token?: string
 }

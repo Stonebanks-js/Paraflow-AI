@@ -3,25 +3,25 @@ import { Inter, Sora, Space_Grotesk, JetBrains_Mono } from "next/font/google";
 import { Providers } from "@/providers";
 import "./globals.css";
 
-const inter = Inter({ 
+const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
   display: "swap",
 });
 
-const sora = Sora({ 
+const sora = Sora({
   subsets: ["latin"],
   variable: "--font-sora",
   display: "swap",
 });
 
-const spaceGrotesk = Space_Grotesk({ 
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   variable: "--font-space",
   display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({ 
+const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   display: "swap",
@@ -41,6 +41,35 @@ export const metadata: Metadata = {
   },
 };
 
+function ApiDiagnostic() {
+  if (typeof window === "undefined") return null;
+  const apiUrl = (window as unknown as { __API_URL__?: string }).__API_URL__;
+  const hostname = window.location.hostname;
+  const protocol = window.location.protocol;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 8,
+        right: 8,
+        zIndex: 9999,
+        background: "rgba(0,0,0,0.85)",
+        color: "#fff",
+        padding: "6px 10px",
+        borderRadius: 6,
+        fontFamily: "monospace",
+        fontSize: 11,
+        maxWidth: 420,
+        pointerEvents: "none",
+        opacity: 0.85,
+      }}
+    >
+      <div>API_BASE: {apiUrl || "(undefined)"}</div>
+      <div>origin: {protocol}//{hostname}</div>
+    </div>
+  );
+}
+
 export default function RootLayout({
   children,
 }: {
@@ -52,6 +81,7 @@ export default function RootLayout({
         className={`${inter.variable} ${sora.variable} ${spaceGrotesk.variable} ${jetbrainsMono.variable} antialiased min-h-screen font-sans`}
       >
         <Providers>{children}</Providers>
+        <ApiDiagnostic />
       </body>
     </html>
   );
