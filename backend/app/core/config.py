@@ -21,6 +21,26 @@ class Settings(BaseSettings):
     NVIDIA_BASE_URL: str = "https://integrate.api.nvidia.com/v1"
     NVIDIA_MODEL: str = "nvidia/llama-3.1-nemotron-nano-8b-v1"
 
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+
+    OPENROUTER_API_KEY: str = ""
+    OPENROUTER_MODEL: str = "meta-llama/llama-3.3-70b-instruct:free"
+
+    GEMINI_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+
+    # Active LLM provider selection. Changing this and ACTIVE_MODEL switches the
+    # engine layer to a different provider. No code changes required.
+    ACTIVE_PROVIDER: str = "nvidia"  # nvidia | openai | groq | openrouter | gemini
+    ACTIVE_MODEL: str = ""  # empty = use provider default
+
+    # Auto-fallback chain: if the active provider fails, try these in order.
+    FALLBACK_PROVIDERS: str = "groq,gemini,openrouter"  # comma-separated
+
+    # LLM request timeout (seconds) - hard cap on each provider call
+    LLM_TIMEOUT_SECONDS: float = 10.0
+
     DEMO_MODE: bool = True
 
     JWT_SECRET_KEY: str = "your-secret-key-change-in-production"
@@ -53,6 +73,12 @@ class Settings(BaseSettings):
         if isinstance(self.CORS_ORIGINS, str):
             return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
         return self.CORS_ORIGINS
+
+    @property
+    def fallback_providers_list(self) -> list[str]:
+        if not self.FALLBACK_PROVIDERS:
+            return []
+        return [p.strip() for p in self.FALLBACK_PROVIDERS.split(",") if p.strip()]
 
 
 @lru_cache

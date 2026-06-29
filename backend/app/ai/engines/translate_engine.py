@@ -1,9 +1,8 @@
+"""Translate engine - pure prompt builder, no provider-specific code."""
 from typing import Optional
-from .base import BaseAIEngine
-from .nvidia_engine import NVIDIAEngine
-import structlog
 
-logger = structlog.get_logger()
+from .base import BaseAIEngine
+from app.ai.llm_service import generate_dict
 
 
 LANGUAGE_CODES = {
@@ -22,7 +21,6 @@ LANGUAGE_CODES = {
 class TranslateEngine(BaseAIEngine):
     def __init__(self):
         super().__init__()
-        self._nvidia = NVIDIAEngine()
 
     async def process(self, input_text: str, options: Optional[dict] = None) -> dict:
         if not self.validate_input(input_text):
@@ -38,61 +36,49 @@ class TranslateEngine(BaseAIEngine):
                 "error": f"Unsupported language: {target_lang}. Supported: {list(LANGUAGE_CODES.keys())}",
             }
 
-        target_lang_name = LANGUAGE_CODES.get(target_lang, target_lang)
-        source_lang_name = LANGUAGE_CODES.get(source_lang, source_lang)
+        system_prompt = self._build_system_prompt(source_lang, target_lang, preserve_tone)
 
-        tone_clause = (
-            " Preserve the original tone, formality level, and stylistic intent."
-            if preserve_tone
-            else ""
-        )
-        instruction = (
-            f"Translate the following text from {source_lang_name} to {target_lang_name}."
-            f"{tone_clause} Return ONLY the translated text with no explanations, no labels, no quotes, no markdown."
+        result = generate_dict(
+            system_prompt=system_prompt,
+            user_prompt=input_text,
+            temperature=0.3,
+            max_tokens=1024,
         )
 
-        translated = None
-        if self._nvidia and self._nvidia.client:
-            try:
-                import asyncio
-                loop = asyncio.get_event_loop()
-                response = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        lambda: self._nvidia.client.chat.completions.create(
-                            model=self._nvidia.model,
-                            messages=[
-                                {"role": "system", "content": instruction},
-                                {"role": "user", "content": input_text},
-                            ],
-                            temperature=0.3,
-                            top_p=0.9,
-                            max_tokens=1024,
-                        ),
-                    ),
-                    timeout=10.0,
-                )
-                translated = (response.choices[0].message.content or "").strip()
-            except (asyncio.TimeoutError, Exception) as e:
-                logger.warning(f"translate.nvidia_fallback: {e}")
+        if result.get("status") == "success" and result.get("output"):
+            translated = result["output"]
+            return {
+                "status": "success",
+                "translated_text": translated,
+                "source_lang": source_lang,
+                "target_lang": target_lang,
+                "word_count_diff": len(translated.split()) - len(input_text.split()),
+                "model": result.get("model"),
+                "provider": result.get("provider"),
+            }
 
-        if not translated:
-            translated = self._local_translate(input_text, target_lang)
-
+        # All providers failed - use local placeholder translation
+        target_name = LANGUAGE_CODES.get(target_lang, target_lang.upper())
+        translated = f"[{target_name} translation unavailable - AI service is slow. Original text follows:] {input_text}"
         return {
             "status": "success",
             "translated_text": translated,
             "source_lang": source_lang,
             "target_lang": target_lang,
-            "confidence": 0.0,
             "word_count_diff": len(translated.split()) - len(input_text.split()),
+            "model": "local-fallback",
+            "provider": "local",
         }
 
-    def _local_translate(self, text: str, target_lang: str) -> str:
-        """Local placeholder translation when NVIDIA is unavailable.
-        Tags the original text with a note indicating which language was requested.
-        This is a degraded path that never blocks the user.
-        """
-        lang_name = LANGUAGE_CODES.get(target_lang, target_lang.upper())
-        prefix = f"[{lang_name} translation unavailable - AI service is slow. Original text follows:] "
-        return prefix + text
+    def _build_system_prompt(self, source_lang: str, target_lang: str, preserve_tone: bool) -> str:
+        source_name = LANGUAGE_CODES.get(source_lang, source_lang)
+        target_name = LANGUAGE_CODES.get(target_lang, target_lang)
+        tone = (
+            " Preserve the original tone, formality level, and stylistic intent."
+            if preserve_tone
+            else ""
+        )
+        return (
+            f"Translate the following text from {source_name} to {target_name}."
+            f"{tone} Return ONLY the translated text with no explanations, no labels, no quotes, no markdown."
+        )

@@ -1,10 +1,8 @@
+"""Paraphrase engine - pure prompt builder, no provider-specific code."""
 from typing import Optional
-from .base import BaseAIEngine
-from .nvidia_engine import NVIDIAEngine
-import structlog
-import re
 
-logger = structlog.get_logger()
+from .base import BaseAIEngine
+from app.ai.llm_service import generate_dict
 
 
 class ParaphraseEngine(BaseAIEngine):
@@ -12,7 +10,6 @@ class ParaphraseEngine(BaseAIEngine):
 
     def __init__(self):
         super().__init__()
-        self._nvidia = NVIDIAEngine()
 
     async def process(self, input_text: str, options: Optional[dict] = None) -> dict:
         if not self.validate_input(input_text):
@@ -24,27 +21,29 @@ class ParaphraseEngine(BaseAIEngine):
         if mode not in self.MODES:
             return {"status": "error", "error": f"Invalid mode. Choose from: {self.MODES}"}
 
-        prompt_options = {
-            "mode": mode,
-            "writing_dna": options.get("writing_dna") if options else None,
-        }
+        writing_dna = options.get("writing_dna") if options else None
 
-        result = await self._nvidia.process(input_text, prompt_options)
+        system_prompt = self._build_system_prompt(mode, writing_dna)
 
-        if result.get("status") == "success":
-            output = result.get("output", "")
+        result = generate_dict(
+            system_prompt=system_prompt,
+            user_prompt=input_text,
+            temperature=0.7 + (strength / 200.0),
+            max_tokens=min(2048, max(256, len(input_text.split()) * 3)),
+        )
+
+        if result.get("status") == "success" and result.get("output"):
+            output = result["output"]
             return {
                 "status": "success",
                 "output": output,
                 "mode": mode,
                 "word_count_diff": len(output.split()) - len(input_text.split()),
                 "model_used": result.get("model"),
+                "provider": result.get("provider"),
             }
 
-        # NVIDIA failed - use local paraphrase fallback so the user always gets a response.
-        # This is a rule-based transformation that changes sentence structure, replaces
-        # common words with synonyms, and varies the output based on the mode.
-        logger.warning(f"paraphrase.nvidia_fallback", error=result.get("error"))
+        # All providers failed - use local rule-based fallback
         try:
             output = self._local_paraphrase(input_text, mode, strength)
             return {
@@ -53,24 +52,22 @@ class ParaphraseEngine(BaseAIEngine):
                 "mode": mode,
                 "word_count_diff": len(output.split()) - len(input_text.split()),
                 "model_used": "local-fallback",
+                "provider": "local",
             }
         except Exception as e:
-            logger.error(f"paraphrase.local_fallback_failed: {e}")
-            return result  # Return original error
+            return {
+                "status": "error",
+                "error": f"All providers failed: {result.get('error', 'unknown')}",
+            }
 
     def _local_paraphrase(self, text: str, mode: str, strength: int) -> str:
-        """Local rule-based paraphrase fallback.
-        Provides a deterministic rewrite using synonym substitution and sentence
-        restructuring. Quality is lower than NVIDIA, but always works.
-        """
+        """Local rule-based paraphrase fallback."""
+        import re
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
         if not sentences:
             return text
 
-        out = []
-        for i, sentence in enumerate(sentences):
-            rewritten = self._rewrite_sentence(sentence, mode, i, strength)
-            out.append(rewritten)
+        out = [self._rewrite_sentence(s, mode, i, strength) for i, s in enumerate(sentences)]
 
         if mode == "expand":
             connectors = ["Additionally,", "Furthermore,", "Moreover,", "It's worth noting that"]
@@ -85,7 +82,6 @@ class ParaphraseEngine(BaseAIEngine):
                 "demonstrate": "show", "facilitate": "help", "subsequently": "then",
                 "additionally": "also", "furthermore": "also", "however": "but",
                 "nevertheless": "still", "approximately": "about", "sufficient": "enough",
-                "endeavor": "try", "ascertain": "find out", "commence": "begin",
             }
             for i, s in enumerate(out):
                 for old, new in replacements.items():
@@ -94,35 +90,16 @@ class ParaphraseEngine(BaseAIEngine):
         elif mode == "formal":
             out = [s.replace("don't", "do not").replace("won't", "will not").replace("can't", "cannot")
                        .replace("I'm", "I am").replace("you're", "you are") for s in out]
-        elif mode == "creative":
-            starters = ["Imagine", "Consider", "Picture", "Think about"]
-            if sentences and len(sentences) > 0 and i == 0:
-                out[0] = f"{starters[i % len(starters)]} — {out[0]}"
-        elif mode == "academic":
-            replacements = {
-                "I think": "It is suggested that", "a lot of": "numerous",
-                "really": "considerably", "very": "substantially", "big": "significant",
-                "get": "obtain", "show": "demonstrate", "tell": "indicate",
-            }
-            for i, s in enumerate(out):
-                for old, new in replacements.items():
-                    s = re.sub(rf'\b{old}\b', new, s, flags=re.IGNORECASE)
-                out[i] = s
-        # "standard", "fluency" - just sentence variation
 
         return " ".join(out)
 
     def _rewrite_sentence(self, sentence: str, mode: str, index: int, strength: int) -> str:
-        """Apply a small set of transformations to vary the sentence."""
         if not sentence:
             return sentence
-
-        # Don't transform very short sentences aggressively
         words = sentence.split()
         if len(words) < 4:
             return sentence
 
-        # Apply synonym substitution based on mode
         substitutions = {
             "standard": {
                 "important": "significant", "big": "large", "small": "minor",
@@ -136,10 +113,7 @@ class ParaphraseEngine(BaseAIEngine):
                 "also": "moreover",
             },
         }
-
         sub = substitutions.get(mode, substitutions["standard"])
-
-        # Apply up to strength/30 substitutions per sentence
         max_subs = max(1, strength // 30)
         new_words = []
         sub_count = 0
@@ -147,10 +121,8 @@ class ParaphraseEngine(BaseAIEngine):
             word_lower = word.lower().strip('.,!?;:')
             if word_lower in sub and sub_count < max_subs:
                 replacement = sub[word_lower]
-                # Preserve capitalization
                 if word[0].isupper():
                     replacement = replacement[0].upper() + replacement[1:]
-                # Preserve trailing punctuation
                 trailing = ""
                 for ch in word[::-1]:
                     if ch in '.,!?;:':
@@ -161,5 +133,20 @@ class ParaphraseEngine(BaseAIEngine):
                 sub_count += 1
             else:
                 new_words.append(word)
-
         return " ".join(new_words)
+
+    def _build_system_prompt(self, mode: str, writing_dna: Optional[str]) -> str:
+        base_prompts = {
+            "standard": "You are a professional writer. Rewrite the text preserving meaning, improving clarity and flow. Output only the rewritten text, no explanations, no labels, no markdown.",
+            "fluency": "You are a fluency expert. Rewrite the text so it flows smoothly and naturally while preserving meaning. Output only the rewritten text, no explanations, no labels, no markdown.",
+            "formal": "You are a formal writing expert. Transform the text into formal, professional language. Output only the transformed text, no explanations, no labels, no markdown.",
+            "academic": "You are an academic writing expert. Use scholarly tone and precise language. Output only the adapted text, no explanations, no labels, no markdown.",
+            "creative": "You are a creative writer. Add creative flair while keeping the core message. Output only the creative version, no explanations, no labels, no markdown.",
+            "simple": "You are a clear communication expert. Simplify the language for broader accessibility. Output only the simplified text, no explanations, no labels, no markdown.",
+            "expand": "You are an expansion writer. Elaborate on ideas while maintaining the original intent. Output only the elaborated text, no explanations, no labels, no markdown.",
+            "shorten": "You are a concise writer. Reduce word count while preserving key information. Output only the condensed text, no explanations, no labels, no markdown.",
+        }
+        prompt = base_prompts.get(mode, base_prompts["standard"])
+        if writing_dna:
+            prompt += f"\n\nMatch this writing style: {writing_dna}"
+        return prompt

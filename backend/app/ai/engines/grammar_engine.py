@@ -1,15 +1,13 @@
-from typing import Optional, List
-from .base import BaseAIEngine
-from .nvidia_engine import NVIDIAEngine
-import structlog
-import re
+"""Grammar engine - pure prompt builder, no provider-specific code."""
+from typing import Optional
 
-logger = structlog.get_logger()
+from .base import BaseAIEngine
+from app.ai.llm_service import generate_dict
 
 
 class GrammarIssue:
-    def __init__(self, issue_type: str, message: str, position: int, length: int, severity: str, suggestions: List[str]):
-        self.type = issue_type
+    def __init__(self, issue_type: str, message: str, position: int, length: int, severity: str, suggestions: list):
+        self.issue_type = issue_type
         self.message = message
         self.position = position
         self.length = length
@@ -20,7 +18,6 @@ class GrammarIssue:
 class GrammarEngine(BaseAIEngine):
     def __init__(self):
         super().__init__()
-        self._nvidia = NVIDIAEngine()
 
     async def process(self, input_text: str, options: Optional[dict] = None) -> dict:
         if not self.validate_input(input_text):
@@ -30,12 +27,26 @@ class GrammarEngine(BaseAIEngine):
 
         issues = self._stage1_rule_based(input_text)
 
-        corrected_text = input_text
-        try:
-            corrected_text = await self._stage2_llm_rewrite(input_text, issues)
-        except Exception as e:
-            logger.error(f"Grammar LLM rewrite failed: {e}")
+        if not issues:
+            # No issues to fix - return original text and let the LLM verify
             corrected_text = input_text
+        else:
+            # Issues found - ask LLM to fix
+            system_prompt = (
+                "Fix grammar, spelling, punctuation, and style issues in the following text. "
+                "Preserve the author's voice and the original meaning. "
+                "Return ONLY the corrected text with no explanations, no labels, no quotes, no markdown."
+            )
+            result = generate_dict(
+                system_prompt=system_prompt,
+                user_prompt=input_text,
+                temperature=0.3,
+                max_tokens=1024,
+            )
+            if result.get("status") == "success" and result.get("output"):
+                corrected_text = result["output"]
+            else:
+                corrected_text = self._apply_rule_fixes(input_text, issues)
 
         return {
             "status": "success",
@@ -44,20 +55,13 @@ class GrammarEngine(BaseAIEngine):
             "language": language,
         }
 
-    def _stage1_rule_based(self, text: str) -> List[GrammarIssue]:
+    def _stage1_rule_based(self, text: str) -> list:
         issues = []
-
         common_errors = {
-            "teh ": "the ",
-            "recieve": "receive",
-            "beleive": "believe",
-            "occured": "occurred",
-            "seperate": "separate",
-            "definately": "definitely",
-            "accomodate": "accommodate",
-            "occurence": "occurrence",
+            "teh ": "the ", "recieve": "receive", "beleive": "believe",
+            "occured": "occurred", "seperate": "separate", "definately": "definitely",
+            "accomodate": "accommodate", "occurence": "occurrence",
         }
-
         text_lower = text.lower()
         for error, correction in common_errors.items():
             if error in text_lower:
@@ -70,7 +74,7 @@ class GrammarEngine(BaseAIEngine):
                     severity="error",
                     suggestions=[correction.strip()],
                 ))
-
+        import re
         double_space = re.findall(r'  +', text)
         for match in double_space:
             pos = text.find(match)
@@ -82,78 +86,22 @@ class GrammarEngine(BaseAIEngine):
                 severity="warning",
                 suggestions=[" "],
             ))
-
         return issues
 
-    async def _stage2_llm_rewrite(self, text: str, issues: List[GrammarIssue]) -> str:
-        """Send the original text to NVIDIA. The LLM is told to correct grammar.
-        We never feed the user text inside an instruction prompt - the LLM gets
-        the text directly as the user message so the simulation fallback (which
-        would echo a string) cannot leak prompt instructions to the UI.
-        """
-        if not self._nvidia or not self._nvidia.client:
-            if issues:
-                return self._apply_rule_fixes(text, issues)
-            return text
-
-        if issues:
-            error_summary = "; ".join([f"{i.type}: {i.message}" for i in issues[:10]])
-            instruction = (
-                "Fix grammar, spelling, punctuation, and style issues in the following text. "
-                "Preserve the author's voice and the original meaning. "
-                "Return ONLY the corrected text with no explanations, no labels, no quotes, no markdown."
-            )
-        else:
-            instruction = (
-                "Review the following text and fix any grammar, punctuation, or clarity issues. "
-                "If no issues exist, return it unchanged. "
-                "Return ONLY the corrected text with no explanations, no labels, no quotes, no markdown."
-            )
-
-        # Use chat completion with system + user role separation
-        # We do NOT concatenate instruction with text - that would leak on fallback.
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            response = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: self._nvidia.client.chat.completions.create(
-                        model=self._nvidia.model,
-                        messages=[
-                            {"role": "system", "content": instruction},
-                            {"role": "user", "content": text},
-                        ],
-                        temperature=0.3,
-                        top_p=0.9,
-                        max_tokens=1024,
-                    ),
-                ),
-                timeout=10.0,
-            )
-            output = (response.choices[0].message.content or "").strip()
-            if not output:
-                return text
-            return output
-        except (asyncio.TimeoutError, Exception) as e:
-            logger.error(f"Grammar LLM call failed: {e}")
-            if issues:
-                return self._apply_rule_fixes(text, issues)
-            return text
-
-    def _apply_rule_fixes(self, text: str, issues: List[GrammarIssue]) -> str:
+    def _apply_rule_fixes(self, text: str, issues: list) -> str:
         corrected = text
         for issue in issues:
-            if issue.type == "spelling" and issue.suggestions:
+            if issue.issue_type == "spelling" and issue.suggestions:
                 start = corrected.lower().find(corrected[issue.position:issue.position + issue.length].lower())
                 if start >= 0:
                     corrected = corrected[:start] + issue.suggestions[0] + corrected[start + issue.length:]
+        import re
         corrected = re.sub(r'  +', ' ', corrected)
         return corrected
 
     def _issue_to_dict(self, issue: GrammarIssue) -> dict:
         return {
-            "type": issue.type,
+            "type": issue.issue_type,
             "message": issue.message,
             "position": issue.position,
             "length": issue.length,
