@@ -1,12 +1,16 @@
-"""Groq provider using the OpenAI-compatible Groq API.
+"""Groq provider using direct httpx calls to the OpenAI-compatible Groq API.
 
-Groq is extremely fast (often <1s responses) and supports many open-source
-models. We use the OpenAI SDK pointed at Groq's base URL.
+We use httpx directly (not the OpenAI SDK) because:
+1. The OpenAI SDK on Render free tier has been observed to take >10s
+   even for fast responses, likely due to retry logic or connection pool
+   behavior interacting with Render's network.
+2. httpx gives us explicit control over timeouts and connection reuse.
 """
 from __future__ import annotations
 
 import threading
-from openai import OpenAI
+import time
+import httpx
 import structlog
 
 from .base import BaseLLMProvider, LLMRequest, LLMResponse
@@ -19,16 +23,24 @@ _client_lock = threading.Lock()
 _client_cache = {}
 
 
-def _get_groq_client(api_key: str, timeout: float = 30.0) -> OpenAI:
+def _get_groq_client(api_key: str, timeout: float = 10.0) -> httpx.Client:
+    """Return a singleton httpx.Client for Groq with connection reuse."""
     cache_key = f"groq:{api_key[:8]}"
     if cache_key not in _client_cache:
         with _client_lock:
             if cache_key not in _client_cache:
-                _client_cache[cache_key] = OpenAI(
+                _client_cache[cache_key] = httpx.Client(
                     base_url=GROQ_BASE_URL,
-                    api_key=api_key,
-                    timeout=timeout,
-                    max_retries=0,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    timeout=httpx.Timeout(timeout),
+                    limits=httpx.Limits(
+                        max_connections=10,
+                        max_keepalive_connections=5,
+                        keepalive_expiry=30.0,
+                    ),
                 )
     return _client_cache[cache_key]
 
@@ -45,7 +57,7 @@ class GroqProvider(BaseLLMProvider):
         if not self._api_key:
             return None
         try:
-            return _get_groq_client(self._api_key, timeout=30.0)
+            return _get_groq_client(self._api_key, timeout=10.0)
         except Exception as e:
             logger.error("groq.client.create_failed", error=str(e))
             return None
@@ -55,35 +67,32 @@ class GroqProvider(BaseLLMProvider):
         return self._default_model
 
     def _do_generate(self, client, request: LLMRequest) -> LLMResponse:
-        response = client.chat.completions.create(
-            model=request.model or self._default_model,
-            messages=[
+        payload = {
+            "model": request.model or self._default_model,
+            "messages": [
                 {"role": "system", "content": request.system_prompt},
                 {"role": "user", "content": request.user_prompt},
             ],
-            temperature=request.temperature,
-            top_p=request.top_p,
-            max_tokens=request.max_tokens,
-        )
+            "temperature": request.temperature,
+            "top_p": request.top_p,
+            "max_tokens": request.max_tokens,
+        }
 
-        text = (response.choices[0].message.content or "").strip()
-        usage = self._safe_usage(response)
+        start = time.monotonic()
+        response = client.post("/chat/completions", json=payload)
+        elapsed = time.monotonic() - start
+        response.raise_for_status()
+        data = response.json()
+
+        text = (data["choices"][0]["message"]["content"] or "").strip()
+        usage = data.get("usage", {})
         return LLMResponse(
             text=text,
-            model=response.model or self._default_model,
+            model=data.get("model", request.model or self._default_model),
             provider=self.name,
             input_tokens=usage.get("prompt_tokens", 0),
             output_tokens=usage.get("completion_tokens", 0),
             total_tokens=usage.get("total_tokens", 0),
-            raw_response=response,
+            raw_response=data,
         )
 
-    def _safe_usage(self, response) -> dict:
-        try:
-            if response.usage:
-                if hasattr(response.usage, "model_dump"):
-                    return response.usage.model_dump()
-                return dict(response.usage)
-        except Exception:
-            pass
-        return {}
