@@ -19,29 +19,39 @@ logger = structlog.get_logger()
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
+# Track create failures so we don't retry the same broken client repeatedly
+_create_failures = 0
+
 _client_lock = threading.Lock()
 _client_cache = {}
 
 
 def _get_groq_client(api_key: str, timeout: float = 10.0) -> httpx.Client:
     """Return a singleton httpx.Client for Groq with connection reuse."""
+    global _create_failures
     cache_key = f"groq:{api_key[:8]}"
     if cache_key not in _client_cache:
         with _client_lock:
             if cache_key not in _client_cache:
-                _client_cache[cache_key] = httpx.Client(
-                    base_url=GROQ_BASE_URL,
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    timeout=httpx.Timeout(timeout),
-                    limits=httpx.Limits(
-                        max_connections=10,
-                        max_keepalive_connections=5,
-                        keepalive_expiry=30.0,
-                    ),
-                )
+                try:
+                    _client_cache[cache_key] = httpx.Client(
+                        base_url=GROQ_BASE_URL,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        timeout=httpx.Timeout(timeout, connect=5.0),
+                        limits=httpx.Limits(
+                            max_connections=10,
+                            max_keepalive_connections=5,
+                            keepalive_expiry=30.0,
+                        ),
+                    )
+                    _create_failures = 0
+                except Exception as e:
+                    _create_failures += 1
+                    logger.error("groq.client.create_failed", error=str(e))
+                    raise
     return _client_cache[cache_key]
 
 
@@ -79,9 +89,32 @@ class GroqProvider(BaseLLMProvider):
         }
 
         start = time.monotonic()
-        response = client.post("/chat/completions", json=payload)
-        elapsed = time.monotonic() - start
-        response.raise_for_status()
+        try:
+            response = client.post("/chat/completions", json=payload)
+            elapsed = time.monotonic() - start
+            logger.info(
+                "groq.request.success",
+                latency=round(elapsed, 3),
+                status=response.status_code,
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException as e:
+            elapsed = time.monotonic() - start
+            logger.warning(
+                "groq.request.timeout",
+                latency=round(elapsed, 3),
+                error=str(e)[:200],
+            )
+            raise RuntimeError(f"Groq timed out after {elapsed:.1f}s") from e
+        except httpx.HTTPError as e:
+            elapsed = time.monotonic() - start
+            logger.error(
+                "groq.request.error",
+                latency=round(elapsed, 3),
+                error=str(e)[:200],
+            )
+            raise
+
         data = response.json()
 
         text = (data["choices"][0]["message"]["content"] or "").strip()
