@@ -1425,3 +1425,116 @@ The user has the diagnostic code (commit `4ac5bce`) deployed. They should see:
 3. Real AI output from Gemini in 3-4 seconds
 
 If the user still sees "Failed to fetch" after this deploy, the overlay will show the actual API_BASE value being used, making the root cause immediately visible.
+
+---
+
+# Phase 11 - Preflight CORS Resolution
+
+**Date:** 2026-06-29
+**Status:** RESOLVED - All CORS preflights return 200 on production
+
+## Problem
+
+The browser's CORS preflight request was returning **400** on `/api/v1/health/score?text=...`. This was blocking the actual request from being sent.
+
+## Root Cause Analysis
+
+Two issues were identified:
+
+### Issue 1: CORS_ORIGINS didn't include Vercel preview URLs
+
+The default `CORS_ORIGINS` in `config.py` was:
+```python
+CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:3001"]
+```
+
+On production, the Vercel env var `CORS_ORIGINS` was set to `["https://paraflow-ai-frontend.vercel.app"]`. But for Vercel preview URLs (e.g., `pr-123-username.vercel.app`), the request would fail CORS.
+
+### Issue 2: Health endpoint query param was undeclared
+
+In `health.py`:
+```python
+@router.get("/score")
+async def get_health_score(
+    text: str = None,  # ← Missing Query() annotation
+    current_user = Depends(get_current_user)
+):
+```
+
+Without `Query(None)`, FastAPI may not properly validate the query string. When the browser sends `?text=...`, FastAPI could return 400 for invalid query params.
+
+## Fix Applied
+
+### `backend/app/main.py`
+Added comprehensive CORS support:
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,           # explicit list
+    allow_origin_regex=r"https://.*\.vercel\.app",      # any Vercel URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+```
+
+Added startup logging:
+```python
+logger.info(f"CORS_ORIGINS={settings.CORS_ORIGINS}")
+```
+
+Added request logging middleware for diagnostics:
+```python
+@app.middleware("http")
+async def debug_requests(request, call_next):
+    logger.info(
+        f"{request.method} {request.url.path} "
+        f"origin={request.headers.get('origin')}"
+    )
+    return await call_next(request)
+```
+
+### `backend/app/api/v1/endpoints/health.py`
+Fixed the health/score query parameter declaration:
+```python
+from fastapi import Query
+
+@router.get("/score")
+async def get_health_score(
+    text: str = Query(None, description="Text to analyze"),
+    current_user = Depends(get_current_user)
+):
+```
+
+## Verification (All 5 Preflight Tests)
+
+| Endpoint | Method | Status | Allow-Origin |
+|----------|--------|--------|---------------|
+| `/api/v1/health/score` | OPTIONS | 200 | https://paraflow-ai-frontend.vercel.app |
+| `/api/v1/health/score?text=test` | OPTIONS | 200 | https://paraflow-ai-frontend.vercel.app |
+| `/api/v1/tools/paraphrase` | OPTIONS | 200 | https://paraflow-ai-frontend.vercel.app |
+| `/api/v1/users/credits` | OPTIONS | 200 | https://paraflow-ai-frontend.vercel.app |
+| `/api/v1/billing/usage` | OPTIONS | 200 | https://paraflow-ai-frontend.vercel.app |
+
+All CORS preflights return 200 with the correct Allow-Origin header. The browser will now proceed with the actual request.
+
+## Diagnosis Path (For Future Reference)
+
+When a CORS preflight returns 400, check:
+1. **Backend logs** - The `debug_requests` middleware now logs every request with origin
+2. **Startup logs** - The `CORS_ORIGINS` log shows what origins are configured
+3. **Query parameter declarations** - All query params should be `Query(None)` not just `str = None`
+4. **CORSMiddleware order** - Must be added before any other middleware
+5. **allow_origin_regex** - Add for Vercel preview URLs and other dynamic origins
+6. **Auth dependencies** - Preflight requests don't carry auth headers, so endpoints with `Depends(get_current_user)` will fail
+
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `backend/app/main.py` | Added `allow_origin_regex` for Vercel preview URLs, added `logger.info(f"CORS_ORIGINS=...")` for startup, added `debug_requests` middleware |
+| `backend/app/api/v1/endpoints/health.py` | Fixed `text: str = None` to `text: str = Query(None, description="Text to analyze")` in `get_health_score` |
+
+## Commit
+
+`aa39ecc` - "fix(cors): Add allow_origin_regex for Vercel preview, log CORS config, fix health endpoint query param"
