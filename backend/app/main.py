@@ -101,13 +101,26 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+logger.info(f"CORS_ORIGINS={settings.CORS_ORIGINS}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def debug_requests(request, call_next):
+    logger.info(
+        f"{request.method} {request.url.path} "
+        f"origin={request.headers.get('origin')}"
+    )
+    return await call_next(request)
+
 
 app.include_router(api_router, prefix="/api/v1")
 

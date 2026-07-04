@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.schemas.health_score import HealthScoreResponse, ContentEvolutionResponse, EvolutionStage
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 @router.get("/score")
 async def get_health_score(
-    text: str = None,
+    text: str = Query(None, description="Text to analyze"),
     current_user = Depends(get_current_user)
 ):
     service = HealthScoreService()
