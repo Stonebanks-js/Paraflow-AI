@@ -86,7 +86,7 @@ export function ParaphraserPanel() {
         mode: selectedMode,
         strength,
       });
-      console.log('[ParaphraserPanel] RESPONSE_RECEIVED', { hasOutput: !!result.output, model: result.model });
+      console.log('[ParaphraserPanel] RESPONSE_RECEIVED', { hasOutput: !!result.output });
 
       const mainOutput = result.output || "";
       setLocalOutputText(mainOutput);
