@@ -23,12 +23,14 @@ export function AgentStudioPanel() {
   const { activeAgents, setActiveAgents, currentScore, setCurrentScore, resetSession } = useAgentStore();
   const [targetScore, setTargetScore] = useState(85);
   const [maxIterations, setMaxIterations] = useState(3);
+  const [error, setError] = useState<string | null>(null);
 
   const agentMutation = useAgentStudio();
 
   const handleRun = async () => {
     if (!inputText.trim()) return;
     resetSession();
+    setError(null);
 
     try {
       const result = await agentMutation.mutateAsync({
@@ -40,8 +42,9 @@ export function AgentStudioPanel() {
 
       setOutputText(result.final_text || "");
       setCurrentScore(result.final_score);
-    } catch (error) {
-      console.error("Agent studio failed:", error);
+    } catch (err) {
+      console.error("Agent studio failed:", err);
+      setError(err instanceof Error ? err.message : "Agent Studio failed");
     }
   };
 
@@ -126,6 +129,12 @@ export function AgentStudioPanel() {
             <FlaskConical className="w-4 h-4" />
             Run Agent Studio
           </ActionButton>
+
+          {error && (
+            <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+              {error}
+            </div>
+          )}
         </CardContent>
       </Card>
 

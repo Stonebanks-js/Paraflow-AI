@@ -251,6 +251,12 @@ export function DetectorPanel() {
                 <RotateCcw className="w-4 h-4" />
               </Button>
             </div>
+
+            {error && (
+              <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                {error}
+              </div>
+            )}
           </CardContent>
         </Card>
 

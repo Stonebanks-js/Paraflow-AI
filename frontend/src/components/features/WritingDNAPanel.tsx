@@ -11,14 +11,23 @@ import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, Responsi
 
 export function WritingDNAPanel() {
   const [samples, setSamples] = useState<string[]>(["", "", ""]);
+  const [error, setError] = useState<string | null>(null);
 
   const enrollMutation = useWritingDNA();
   const profileQuery = useWritingDNAProfile();
 
   const handleEnroll = async () => {
     const validSamples = samples.filter((s) => s.trim().length > 50);
-    if (validSamples.length < 1) return;
-    await enrollMutation.mutateAsync(validSamples);
+    if (validSamples.length < 1) {
+      setError("Each sample must be at least 50 characters. Add more text to at least one sample.");
+      return;
+    }
+    setError(null);
+    try {
+      await enrollMutation.mutateAsync(validSamples);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Writing DNA enrollment failed");
+    }
   };
 
   const profile = profileQuery.data;
@@ -87,6 +96,12 @@ export function WritingDNAPanel() {
               </>
             )}
           </Button>
+
+          {error && (
+            <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+              {error}
+            </div>
+          )}
         </CardContent>
       </Card>
 

@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type {
@@ -14,12 +15,22 @@ import type {
 } from '@/types';
 
 export function useHealthScore(text: string | null) {
+  // Debounce: without this, a distinct queryKey (and a distinct request)
+  // fires on every keystroke once text passes the length threshold, which
+  // can flood the backend with dozens of concurrent requests for a single
+  // paragraph being typed.
+  const [debouncedText, setDebouncedText] = useState(text);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedText(text), 800);
+    return () => clearTimeout(timer);
+  }, [text]);
+
   return useQuery<HealthScore>({
-    queryKey: ['health', text],
+    queryKey: ['health', debouncedText],
     // POST + JSON body, not a GET query string -- a full user paragraph in
     // a URL can exceed proxy/CDN URL length limits (HTTP 414).
-    queryFn: () => api.post('/v1/health/score', { text: text || '' }),
-    enabled: !!text && text.length > 10,
+    queryFn: () => api.post('/v1/health/score', { text: debouncedText || '' }),
+    enabled: !!debouncedText && debouncedText.length > 10,
   });
 }
 
