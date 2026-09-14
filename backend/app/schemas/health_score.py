@@ -3,6 +3,10 @@ from typing import Optional
 from uuid import UUID
 
 
+class HealthScoreRequest(BaseModel):
+    text: str = ""
+
+
 class HealthScoreResponse(BaseModel):
     score: int
     status: str

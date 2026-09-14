@@ -487,7 +487,11 @@ class APITester:
 
         start = time.time()
         try:
-            response = await self.client.get("/v1/health/score?text=This is a sample text for health scoring.", headers=headers)
+            response = await self.client.post(
+                "/v1/health/score",
+                json={"text": "This is a sample text for health scoring."},
+                headers=headers,
+            )
             latency = (time.time() - start) * 1000
 
             if response.status_code == 200:

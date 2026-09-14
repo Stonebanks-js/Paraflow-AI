@@ -1705,3 +1705,130 @@ login suggests the project has been switched to legacy HS256 signing).
 - The `handle_new_user()` trigger seeds new users with **10** credits (`supabase_migration.sql`); `deduct_credits()` creates a missing row with **100** if the trigger hasn't fired. This pre-existing inconsistency was not resolved — no product-requirements evidence was available to pick one value over the other.
 - Refresh-token-as-access-token replay (no `type` claim check) in the legacy backend JWT path — not in scope of this fix since that path is no longer used for real authentication.
 - The Vercel-wildcard CORS regex (`https://.*\.vercel\.app`) was left untouched per explicit instruction, though it remains broader than strictly necessary.
+
+---
+
+# Phase 13 - Health Score URI Too Long Resolution
+
+**Date:** 2026-09-14
+**Status:** ROOT CAUSE FIXED IN CODE — production browser verification still required (see below)
+
+## Exact Root Cause
+
+`GET /api/v1/health/score` took the text to analyze as a query parameter
+(`?text=...`). `frontend/src/hooks/use-api.ts::useHealthScore()` — used by
+`ParaphraserPanel.tsx` to live-score the current paraphrase output/input —
+built this request as `api.get('/v1/health/score?text=' +
+encodeURIComponent(text))`, placing the user's **entire paragraph** into the
+URL. URLs have hard length limits enforced by proxy/CDN infrastructure
+(Cloudflare, Render's edge, browsers themselves — commonly 8KB or less)
+well before the request ever reaches FastAPI. Once the paragraph pushed the
+URL past that limit, the browser's network stack (or an intermediate proxy)
+rejected it with `414 URI Too Long`.
+
+## Evidence from the Browser Network Tab (as reported)
+
+- Preflight `OPTIONS /api/v1/health/score?text=<paragraph>` → **414**
+- Actual `GET` → surfaced in the browser as a **CORS error**
+
+## Why the CORS Error Was Secondary, Not the Real Cause
+
+A `414` is returned by proxy/edge infrastructure (or the browser itself)
+**before** the request reaches the FastAPI application — meaning it never
+reaches `CORSMiddleware`, so no `Access-Control-Allow-Origin` header is ever
+attached to the response. The browser then reports this as a generic CORS
+failure (no CORS headers present on the response it did get), which is a
+symptom of the 414, not an independent CORS misconfiguration. This is why
+Phase 11's CORS fix (still correct, left untouched here) did not and could
+not resolve this — the actual CORS configuration was never reached for this
+request. Widening CORS further, as the symptom might suggest, would have
+done nothing; the fix has to be at the API design level (get the text out of
+the URL entirely), which is what was done.
+
+## API Architecture — Before
+
+```
+ParaphraserPanel → useHealthScore(text)
+  → api.get('/v1/health/score?text=' + encodeURIComponent(text))
+  → GET /api/v1/health/score?text=<entire paragraph, url-encoded>
+  → [proxy/CDN URL-length limit exceeded] → 414, request never reaches FastAPI
+```
+
+`backend/app/api/v1/endpoints/health.py` accepted `text: str =
+Query(None, ...)` — and notably never actually used it in the scoring logic
+(the score was already computed from hardcoded dummy inputs). This was purely
+a transport-layer defect, not a scoring-logic one.
+
+## API Architecture — After
+
+```
+ParaphraserPanel → useHealthScore(text)
+  → api.post('/v1/health/score', { text })
+  → POST /api/v1/health/score  body: {"text": "<entire paragraph>"}
+  → no URL-length exposure regardless of text size
+  → FastAPI HealthScoreRequest(BaseModel) validates the body
+  → same HealthScoreService.calculate_score() logic, unchanged
+```
+
+## Files Changed
+
+| File | Change |
+|---|---|
+| `backend/app/schemas/health_score.py` | Added `HealthScoreRequest(BaseModel)` with `text: str = ""`. |
+| `backend/app/api/v1/endpoints/health.py` | `@router.get("/score")` → `@router.post("/score")`; `text: str = Query(...)` → `request: HealthScoreRequest` body param. Scoring logic (`HealthScoreService.calculate_score(...)`) and response shape (`HealthScoreResponse`) are byte-for-byte unchanged. |
+| `frontend/src/hooks/use-api.ts` | `useHealthScore()`: `api.get('/v1/health/score?text=' + encodeURIComponent(text))` → `api.post('/v1/health/score', { text: text \|\| '' })`. |
+| `frontend/src/app/dashboard/page.tsx` | Same GET→POST change for its own health-score call (previously sent `?text=` with an empty string — not itself a 414 risk, but the same wrong architecture and now consistent with the fixed endpoint, which no longer accepts GET at all). |
+| `scripts/test_all_endpoints.py` | Updated the health-score test to POST JSON instead of GET-with-query-string, matching the new API. |
+
+**Audited and confirmed already correct (no change needed):** every one of
+the 8 engine endpoints (Paraphraser, Humanizer, Detector, Grammar,
+Summarizer, Translator, SEO, Writing DNA) and Agent Studio already send
+user text via `POST` + JSON body in both `frontend/src/hooks/use-api.ts` and
+`backend/app/api/v1/endpoints/tools.py` / `writing_dna.py` / `agents.py` —
+`useHealthScore` was the only offender in the entire codebase (full-repo
+grep for `health/score`, `score?text=`, `getHealthScore`, `healthScore`
+confirms no other call site). Nothing else needed to change.
+
+**Not touched:** authentication, CORS configuration, `NEXT_PUBLIC_API_URL`,
+Supabase config, Gemini config, the health-scoring business logic itself, no
+second API client was introduced, no URL-length workaround or text
+truncation was added.
+
+## Tests Performed
+
+- `python -m py_compile` on both edited backend files — clean.
+- Backend started locally; `OPTIONS /api/v1/health/score` with
+  `Origin: https://paraflow-ai-frontend.vercel.app`,
+  `Access-Control-Request-Method: POST`,
+  `Access-Control-Request-Headers: authorization,content-type` →
+  **200 OK**, `access-control-allow-origin` present and correct,
+  `access-control-allow-methods` includes `POST`, `access-control-allow-headers`
+  includes `authorization,content-type`.
+- `POST /api/v1/health/score` with a **9,000-character** JSON body (well
+  above the 5,000–10,000 char target) and no token → **401 "Not
+  authenticated"**, not 414 — confirms the large body is now transported
+  and reaches the FastAPI/auth layer without any URL-length involvement.
+- Same large body with a present-but-invalid bearer token → **401 "Invalid
+  or expired token"** — confirms the body is correctly parsed by Pydantic
+  and the request reaches `get_current_user()`, not just accepted at the
+  socket level.
+- `GET /api/v1/health/score?text=test` (the old route/method) → **405
+  Method Not Allowed** — confirms the GET-with-query-string path no longer
+  exists at all, structurally eliminating this failure mode rather than
+  just working around it for this one request size.
+- Frontend: `tsc --noEmit` → 0 errors. `next build` → succeeded, 19 routes,
+  0 errors (same as prior phases).
+
+## Production Verification Status
+
+**NOT verified against the live Vercel/Render deployment or with a real
+accepted (valid-signature) token** — for the same reason as Phase 12: no
+Supabase test account, MCP access, or usable service-role key is available
+in this environment. The tests above prove the fix is structurally correct
+(no more text in any URL, large bodies transport and parse correctly, CORS
+preflight is correct for the new method) but the actual accept-and-score
+path with a genuine logged-in user has not been exercised end-to-end.
+**Please verify in the actual browser**: open the Paraphraser tool, run a
+paraphrase on a long paragraph (several thousand characters), and confirm
+the health score loads with no 414/CORS error in the Network tab, once
+Render has redeployed this commit.

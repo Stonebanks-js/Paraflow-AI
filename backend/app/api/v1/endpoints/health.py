@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
-from app.schemas.health_score import HealthScoreResponse, ContentEvolutionResponse, EvolutionStage
+from app.schemas.health_score import HealthScoreRequest, HealthScoreResponse, ContentEvolutionResponse, EvolutionStage
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.health_score_service import HealthScoreService
 from uuid import UUID
@@ -9,11 +9,16 @@ from uuid import UUID
 router = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("/score")
+@router.post("/score")
 async def get_health_score(
-    text: str = Query(None, description="Text to analyze"),
+    request: HealthScoreRequest,
     current_user = Depends(get_current_user)
 ):
+    # `text` arrives in the JSON body, not a query string -- a full user
+    # paragraph in a GET query param can exceed URL length limits enforced
+    # by proxy/CDN infrastructure in front of the backend (HTTP 414),
+    # independent of and often mistaken for a CORS failure.
+    text = request.text
     service = HealthScoreService()
 
     score = service.calculate_score(

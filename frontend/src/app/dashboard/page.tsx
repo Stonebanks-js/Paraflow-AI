@@ -135,8 +135,9 @@ export default function DashboardPage() {
         if (!cancelled) setStats({ documents: 0, wordsProcessed: 0, timeSaved: 0 });
       }
       try {
-        const health = await api.get<{ score?: number; dimensions?: { grammar?: number; clarity?: number; seo?: number } }>(
-          "/v1/health/score?text="
+        const health = await api.post<{ score?: number; dimensions?: { grammar?: number; clarity?: number; seo?: number } }>(
+          "/v1/health/score",
+          { text: "" }
         );
         if (cancelled) return;
         setHealthScore(health.score ?? 0);

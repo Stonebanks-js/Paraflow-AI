@@ -16,7 +16,9 @@ import type {
 export function useHealthScore(text: string | null) {
   return useQuery<HealthScore>({
     queryKey: ['health', text],
-    queryFn: () => api.get('/v1/health/score?text=' + encodeURIComponent(text || '')),
+    // POST + JSON body, not a GET query string -- a full user paragraph in
+    // a URL can exceed proxy/CDN URL length limits (HTTP 414).
+    queryFn: () => api.post('/v1/health/score', { text: text || '' }),
     enabled: !!text && text.length > 10,
   });
 }
