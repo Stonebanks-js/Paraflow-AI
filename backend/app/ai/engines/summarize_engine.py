@@ -40,7 +40,7 @@ class SummarizeEngine(BaseAIEngine):
             system_prompt=system_prompt,
             user_prompt=input_text,
             temperature=0.5,
-            max_tokens=min(1024, target_length * 3),
+            max_tokens=min(1024, max(64, target_length * 3)),
         )
 
         if result.get("status") == "success" and result.get("output"):

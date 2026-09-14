@@ -88,6 +88,17 @@ class GeminiProvider(BaseLLMProvider):
                 "temperature": request.temperature,
                 "topP": request.top_p,
                 "maxOutputTokens": request.max_tokens,
+                # Gemini 2.5 models "think" by default, and those reasoning
+                # tokens are drawn from the same maxOutputTokens budget as
+                # the visible answer. For short, deterministic text-transform
+                # tasks (paraphrase/summarize/translate/etc.) with a modest
+                # token budget, thinking can consume most or all of it,
+                # truncating the actual output to a few words before it even
+                # starts (observed live: an 81-word summarize request with
+                # maxOutputTokens=120 returned only 4 words). None of these
+                # engines need chain-of-thought reasoning, so disable it to
+                # give the full budget to the real answer.
+                "thinkingConfig": {"thinkingBudget": 0},
             },
         }
 
