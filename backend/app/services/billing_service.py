@@ -28,7 +28,14 @@ class BillingService:
             return 100
 
         try:
-            response = self.supabase.table("credits").select("amount").eq("user_id", user_id).execute()
+            # Service-role read: RLS on `credits` is `auth.uid() = user_id`,
+            # and this backend's plain anon client never binds a per-request
+            # Postgres session to the caller's JWT, so auth.uid() is NULL for
+            # it and an anon-client SELECT here silently returns empty even
+            # when the row exists. The caller was already authenticated by
+            # get_current_user()'s JWT verification; a trusted service-role
+            # read here is correct (same pattern already used for writes).
+            response = self.admin.table("credits").select("amount").eq("user_id", user_id).execute()
             if response.data:
                 return response.data[0].get("amount", 0)
             return 0
@@ -42,7 +49,8 @@ class BillingService:
             return True
 
         try:
-            response = self.supabase.table("users").select("id").eq("id", user_id).execute()
+            # Service-role read: see note in get_balance().
+            response = self.admin.table("users").select("id").eq("id", user_id).execute()
             return len(response.data) > 0
         except:
             return False
@@ -56,7 +64,8 @@ class BillingService:
             return True
 
         try:
-            existing = self.supabase.table("credits").select("id").eq("user_id", user_id).execute()
+            # Service-role read: see note in get_balance().
+            existing = self.admin.table("credits").select("id").eq("user_id", user_id).execute()
             if existing.data:
                 return True
 

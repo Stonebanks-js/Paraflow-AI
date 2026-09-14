@@ -89,8 +89,11 @@ async def register(user_data: UserCreate):
 
     try:
         supabase = get_supabase()
+        admin = get_supabase_admin()
 
-        existing_user = supabase.table("users").select("*").eq("email", user_data.email).execute()
+        # Service-role read: see note in get_current_user() -- the anon
+        # client can't see rows under RLS.
+        existing_user = admin.table("users").select("*").eq("email", user_data.email).execute()
         if existing_user.data:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -108,7 +111,7 @@ async def register(user_data: UserCreate):
         })
 
         if auth_response.user:
-            user_response = supabase.table("users").upsert({
+            user_response = admin.table("users").upsert({
                 "id": auth_response.user.id,
                 "email": user_data.email,
                 "full_name": user_data.full_name,
@@ -176,7 +179,8 @@ async def login(credentials: LoginRequest):
             access_token = create_access_token({"sub": auth_response.user.id, "email": auth_response.user.email})
             refresh_token = create_refresh_token({"sub": auth_response.user.id})
 
-            user_data = supabase.table("users").select("*").eq("id", auth_response.user.id).execute()
+            # Service-role read: see note in get_current_user().
+            user_data = get_supabase_admin().table("users").select("*").eq("id", auth_response.user.id).execute()
             user = user_data.data[0] if user_data.data else None
 
             return TokenResponse(
@@ -277,22 +281,32 @@ async def get_current_user(
         }
 
     try:
-        supabase = get_supabase()
-        user_data = supabase.table("users").select("*").eq("id", user_id).execute()
+        # Use the service-role client for this read, not the plain anon
+        # client. RLS on `public.users` is `auth.uid() = id`, and this
+        # backend's anon-key client never binds a per-request Postgres
+        # session to the caller's JWT (no .auth.set_session()/equivalent)
+        # — so auth.uid() is NULL for it and an anon-client SELECT here
+        # silently returns empty even when the row exists, which was
+        # previously causing every real user to hit the "row missing"
+        # fallback below and, when that also used the anon client, a
+        # false "User not found" 401 for every authenticated user. The
+        # caller's identity was already verified via verify_supabase_token()
+        # above, so a trusted, already-authorized service-role read here is
+        # correct — the same pattern billing/writing-dna already use for
+        # writes.
+        admin = get_supabase_admin()
+        user_data = admin.table("users").select("*").eq("id", user_id).execute()
 
         if user_data.data:
             return user_data.data[0]
 
-        # Token is valid and belongs to a real Supabase auth user, but no
-        # `public.users` row exists yet. The `handle_new_user()` trigger
-        # (supabase_migration.sql) should normally create this row on
-        # signup; this is a deterministic, non-destructive safety net for
-        # the case where it hasn't run (trigger missing/race on first
-        # request). It creates the row exactly once and never overwrites
-        # an existing one — if insert fails (e.g. a concurrent insert by
-        # the trigger already created it), it re-reads rather than retries.
+        # Row genuinely doesn't exist yet. The `handle_new_user()` trigger
+        # (supabase_migration.sql) should normally create it on signup;
+        # this is a deterministic, non-destructive safety net for the case
+        # where it hasn't run. Creates the row exactly once and never
+        # overwrites an existing one — if insert fails (e.g. a concurrent
+        # insert by the trigger just created it), re-read rather than retry.
         try:
-            admin = get_supabase_admin()
             inserted = admin.table("users").insert({
                 "id": user_id,
                 "email": user_email,
@@ -306,7 +320,7 @@ async def get_current_user(
         except Exception as insert_err:
             logger.warning(f"users row insert failed (may already exist): {insert_err}")
 
-        user_data = supabase.table("users").select("*").eq("id", user_id).execute()
+        user_data = admin.table("users").select("*").eq("id", user_id).execute()
         if user_data.data:
             return user_data.data[0]
 

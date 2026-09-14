@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
-from app.db.supabase import get_supabase
+from app.db.supabase import get_supabase_admin
 from app.schemas.auth import UserResponse
 from app.api.v1.endpoints.auth import get_current_user
 from app.core.config import settings
@@ -24,8 +24,8 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_user
                 created_at=current_user.get("created_at", "2024-01-01T00:00:00Z")
             )
 
-        supabase = get_supabase()
-        user_data = supabase.table("users").select("*").eq("id", current_user["id"]).execute()
+        # Service-role read: see note in auth.py's get_current_user().
+        user_data = get_supabase_admin().table("users").select("*").eq("id", current_user["id"]).execute()
         if user_data.data:
             user = user_data.data[0]
             return UserResponse(
@@ -58,7 +58,6 @@ async def update_current_user(
         return {"status": "success", "message": "Profile updated (Supabase not configured)"}
 
     try:
-        supabase = get_supabase()
         user_id = current_user["id"] if isinstance(current_user, dict) else current_user.get("id")
 
         updates = {}
@@ -68,7 +67,8 @@ async def update_current_user(
             updates["onboarding_done"] = onboarding_done
 
         if updates:
-            supabase.table("users").update(updates).eq("id", user_id).execute()
+            # Service-role write: see note in auth.py's get_current_user().
+            get_supabase_admin().table("users").update(updates).eq("id", user_id).execute()
 
         return {"status": "success", "message": "Profile updated"}
     except Exception as e:
@@ -85,10 +85,10 @@ async def get_user_credits(
         return {"balance": 100, "tier": "free"}
 
     try:
-        supabase = get_supabase()
         user_id = current_user["id"] if isinstance(current_user, dict) else current_user.get("id")
 
-        credits_data = supabase.table("credits").select("*").eq("user_id", user_id).execute()
+        # Service-role read: see note in auth.py's get_current_user().
+        credits_data = get_supabase_admin().table("credits").select("*").eq("user_id", user_id).execute()
         if credits_data.data:
             return {"balance": credits_data.data[0].get("amount", 100), "tier": current_user.get("role", "free")}
         return {"balance": 100, "tier": current_user.get("role", "free")}

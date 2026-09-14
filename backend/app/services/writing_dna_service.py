@@ -41,7 +41,12 @@ class WritingDNAService:
         return await self._upsert_profile(user_id, analysis, sample_count=len(samples))
 
     async def get_profile(self, user_id: UUID) -> Optional[WritingDNAProfile]:
-        response = self.supabase.table("writing_dna_profiles").select("*").eq("user_id", str(user_id)).execute()
+        # Service-role read: RLS is `auth.uid() = user_id`, and this
+        # backend's anon client never binds a per-request Postgres session
+        # to the caller's JWT, so an anon-client SELECT here silently
+        # returns empty even when the row exists. See the same note in
+        # auth.py's get_current_user().
+        response = self.admin.table("writing_dna_profiles").select("*").eq("user_id", str(user_id)).execute()
         if not response.data:
             return None
         return self._row_to_profile(response.data[0])
