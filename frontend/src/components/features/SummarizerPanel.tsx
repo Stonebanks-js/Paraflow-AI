@@ -37,6 +37,7 @@ export function SummarizerPanel() {
   const [chatMessage, setChatMessage] = useState("");
   const [activeTab, setActiveTab] = useState<"summary" | "keypoints" | "insights" | "chat">("summary");
   const [error, setError] = useState<string | null>(null);
+  const [processingTime, setProcessingTime] = useState<number>(0);
 
   const summarizeMutation = useSummarize();
 
@@ -59,6 +60,7 @@ export function SummarizerPanel() {
     }
     setIsProcessing(true);
     setError(null);
+    const startTime = Date.now();
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -74,6 +76,7 @@ export function SummarizerPanel() {
         max_length: maxLength,
       });
       setLocalOutputText(result.summary || "");
+      setProcessingTime((Date.now() - startTime) / 1000);
 
       addMessage(toolId, {
         id: (Date.now() + 1).toString(),
@@ -170,7 +173,6 @@ ${keyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}
     { label: "Extract Actions", action: () => setSelectedStyle("action_items") },
   ];
 
-  const processingTime = 4.2;
   const creditsUsed = 5;
 
   return (
@@ -191,7 +193,7 @@ ${keyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Timer className="w-4 h-4" />
-                  <span>{processingTime}s</span>
+                  <span>{processingTime.toFixed(1)}s</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Coins className="w-4 h-4" />

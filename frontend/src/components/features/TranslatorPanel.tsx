@@ -70,6 +70,7 @@ export function TranslatorPanel() {
   const [activeTab, setActiveTab] = useState<"result" | "report" | "chat">("result");
   const [translationType, setTranslationType] = useState("general");
   const [error, setError] = useState<string | null>(null);
+  const [processingTime, setProcessingTime] = useState<number>(0);
 
   const translateMutation = useTranslate();
 
@@ -92,6 +93,7 @@ export function TranslatorPanel() {
     }
     setIsProcessing(true);
     setError(null);
+    const startTime = Date.now();
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -108,6 +110,7 @@ export function TranslatorPanel() {
         preserve_tone: preserveTone,
       });
       setLocalOutputText(result.translated_text || "");
+      setProcessingTime((Date.now() - startTime) / 1000);
 
       addMessage(toolId, {
         id: (Date.now() + 1).toString(),
@@ -207,7 +210,6 @@ ${outputText}
     { label: "Improve Flow", action: () => setChatMessage("Improve the natural flow of the translation") },
   ];
 
-  const processingTime = 2.8;
   const creditsUsed = 8;
 
   return (
@@ -228,7 +230,7 @@ ${outputText}
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Timer className="w-4 h-4" />
-                  <span>{processingTime}s</span>
+                  <span>{processingTime.toFixed(1)}s</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Coins className="w-4 h-4" />

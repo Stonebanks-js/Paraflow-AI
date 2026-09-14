@@ -40,6 +40,7 @@ export function GrammarPanel() {
   const [activeTab, setActiveTab] = useState<"overview" | "issues" | "suggestions" | "chat">("overview");
   const [appliedFixes, setAppliedFixes] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [processingTime, setProcessingTime] = useState<number>(0);
 
   const grammarMutation = useGrammar();
 
@@ -63,6 +64,7 @@ export function GrammarPanel() {
     setIsProcessing(true);
     setError(null);
     setAppliedFixes(new Set());
+    const startTime = Date.now();
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -77,6 +79,7 @@ export function GrammarPanel() {
         language: "en",
       });
       setLocalOutputText(result.corrected_text || "");
+      setProcessingTime((Date.now() - startTime) / 1000);
 
       addMessage(toolId, {
         id: (Date.now() + 1).toString(),
@@ -251,7 +254,6 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
     { label: "Shorten Text", icon: TrendingUp, action: () => setChatMessage("Make this more concise while keeping key points") },
   ];
 
-  const processingTime = 2.1;
   const creditsUsed = 3;
 
   return (
@@ -272,7 +274,7 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Timer className="w-4 h-4" />
-                  <span>{processingTime}s</span>
+                  <span>{processingTime.toFixed(1)}s</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Coins className="w-4 h-4" />

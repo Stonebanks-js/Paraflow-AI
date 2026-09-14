@@ -39,6 +39,7 @@ export function SEOPanel() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<"overview" | "keywords" | "recommendations" | "chat">("overview");
   const [error, setError] = useState<string | null>(null);
+  const [processingTime, setProcessingTime] = useState<number>(0);
 
   const seoMutation = useSEO();
 
@@ -62,6 +63,7 @@ export function SEOPanel() {
     }
     setIsProcessing(true);
     setError(null);
+    const startTime = Date.now();
 
     addMessage(toolId, {
       id: Date.now().toString(),
@@ -76,6 +78,7 @@ export function SEOPanel() {
         target_keywords: keywordList,
         content_type: contentType,
       });
+      setProcessingTime((Date.now() - startTime) / 1000);
 
       addMessage(toolId, {
         id: (Date.now() + 1).toString(),
@@ -132,7 +135,6 @@ export function SEOPanel() {
     }));
   }, [analysis]);
 
-  const processingTime = 3.1;
   const creditsUsed = 5;
 
   return (
@@ -153,7 +155,7 @@ export function SEOPanel() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Timer className="w-4 h-4" />
-                  <span>{processingTime}s</span>
+                  <span>{processingTime.toFixed(1)}s</span>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Coins className="w-4 h-4" />
