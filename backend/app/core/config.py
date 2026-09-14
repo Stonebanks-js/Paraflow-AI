@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     SUPABASE_KEY: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
+    # Only needed if this Supabase project uses legacy HS256 shared-secret
+    # JWT signing instead of the modern JWKS/asymmetric (ES256) signing keys.
+    # Leave empty for JWKS-based projects (the default for new projects).
+    SUPABASE_JWT_SECRET: str = ""
+
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
@@ -25,7 +30,11 @@ class Settings(BaseSettings):
 
     DEMO_MODE: bool = True
 
-    JWT_SECRET_KEY: str = "your-secret-key-change-in-production"
+    # Used only by the legacy backend-minted JWT endpoints (/auth/login,
+    # /auth/register in demo mode) — not used to verify Supabase-issued
+    # tokens. No insecure default: if left empty, those legacy endpoints
+    # refuse to mint tokens rather than silently signing with a known value.
+    JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7

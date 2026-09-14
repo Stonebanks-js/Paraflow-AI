@@ -9,8 +9,10 @@ from app.api.v1.endpoints.auth import get_current_user
 from app.services.writing_dna_service import WritingDNAService
 from app.core.config import settings
 from uuid import uuid4
+import structlog
 
 router = APIRouter(prefix="/writing-dna", tags=["writing-dna"])
+logger = structlog.get_logger()
 
 
 @router.post("/enroll", response_model=WritingDNAResponse)

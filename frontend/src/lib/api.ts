@@ -1,4 +1,4 @@
-import { getAccessToken } from './auth-service'
+import { getAccessToken, refreshSession } from './auth-service'
 
 const API_BASE = (() => {
   const env = process.env.NEXT_PUBLIC_API_URL
@@ -26,6 +26,45 @@ interface FetchOptions extends RequestInit {
   token?: string
 }
 
+async function doFetch(
+  endpoint: string,
+  fetchOptions: RequestInit,
+  headersBase: Record<string, string>,
+  bearerToken: string | undefined
+): Promise<Response> {
+  const headers: Record<string, string> = { ...headersBase }
+  if (bearerToken) {
+    headers['Authorization'] = `Bearer ${bearerToken}`
+  } else {
+    console.warn('[api.ts] NO AUTH TOKEN for', endpoint)
+  }
+
+  const url = `${API_BASE_WITH_SLASH}${endpoint}`
+  const method = (fetchOptions.method as string) || 'GET'
+  console.log('[api.ts] REQUEST', method, url, 'hasToken:', !!bearerToken)
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 30000)
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      headers,
+      signal: controller.signal,
+    })
+    console.log('[api.ts] RESPONSE', method, url, 'status:', response.status)
+    return response
+  } catch (err) {
+    console.error('[api.ts] FETCH ERROR', method, url, err)
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Request timed out. Please try again.')
+    }
+    throw new Error(err instanceof Error ? err.message : 'Network error')
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export async function apiFetch<T>(
   endpoint: string,
   options: FetchOptions = {}
@@ -35,13 +74,12 @@ export async function apiFetch<T>(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-
   if (options.headers) {
-    const h = options.headers as Record<string, string>
-    Object.assign(headers, h)
+    Object.assign(headers, options.headers as Record<string, string>)
   }
 
   let authToken = token
+  const explicitToken = !!token
   if (!authToken) {
     try {
       authToken = (await getAccessToken()) ?? undefined
@@ -50,37 +88,19 @@ export async function apiFetch<T>(
       authToken = undefined
     }
   }
-  if (authToken) {
-    headers['Authorization'] = `Bearer ${authToken}`
-  } else {
-    console.warn('[api.ts] NO AUTH TOKEN for', endpoint)
-  }
 
-  const url = `${API_BASE_WITH_SLASH}${endpoint}`
-  const method = (fetchOptions.method as string) || 'GET'
-  console.log('[api.ts] REQUEST', method, url, 'hasToken:', !!authToken)
+  let response = await doFetch(endpoint, fetchOptions, headers, authToken)
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 30000)
-
-  let response: Response
-  try {
-    response = await fetch(url, {
-      ...fetchOptions,
-      headers,
-      signal: controller.signal,
-    })
-  } catch (err) {
-    clearTimeout(timeout)
-    console.error('[api.ts] FETCH ERROR', method, url, err)
-    if (err instanceof Error && err.name === 'AbortError') {
-      throw new Error('Request timed out. Please try again.')
+  // The Supabase client auto-refreshes tokens in the background, but a
+  // token can still expire between page load and this request firing.
+  // Attempt exactly one explicit refresh + retry before surfacing an
+  // error — never for a caller-supplied token, and never more than once.
+  if (response.status === 401 && !explicitToken) {
+    const refreshed = await refreshSession()
+    if (refreshed?.access_token) {
+      response = await doFetch(endpoint, fetchOptions, headers, refreshed.access_token)
     }
-    throw new Error(err instanceof Error ? err.message : 'Network error')
   }
-  clearTimeout(timeout)
-
-  console.log('[api.ts] RESPONSE', method, url, 'status:', response.status)
 
   if (!response.ok) {
     let detail = `HTTP ${response.status}`
@@ -94,7 +114,10 @@ export async function apiFetch<T>(
     } catch {
       /* ignore */
     }
-    console.error('[api.ts] ERROR RESPONSE', method, url, 'status:', response.status, 'detail:', detail)
+    if (response.status === 401) {
+      detail = 'Your session has expired. Please log in again.'
+    }
+    console.error('[api.ts] ERROR RESPONSE', endpoint, 'status:', response.status, 'detail:', detail)
     throw new Error(detail)
   }
 

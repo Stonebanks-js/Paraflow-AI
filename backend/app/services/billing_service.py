@@ -48,24 +48,20 @@ class BillingService:
             return False
 
     async def _get_or_create_credits_row(self, user_id: str, initial_amount: int = 100) -> bool:
-        """Create or update credits row for user with specified amount"""
+        """Ensure a credits row exists for user_id. Creates it once with
+        initial_amount if missing; NEVER resets an existing row's balance
+        just because this was called again (that was the P0 monetization
+        bug — every deduct_credits() call was resetting balance to 100)."""
         if self.demo_mode:
             return True
 
         try:
-            now = datetime.utcnow()
-            period_end = datetime(now.year + (1 if now.month > 6 else 0), ((now.month + 6) % 12) or 12, min(now.day, 28))
-
             existing = self.supabase.table("credits").select("id").eq("user_id", user_id).execute()
             if existing.data:
-                self.admin.table("credits").update({
-                    "amount": initial_amount,
-                    "used": 0,
-                    "period_start": now.isoformat(),
-                    "period_end": period_end.isoformat()
-                }).eq("user_id", user_id).execute()
-                logger.info(f"Updated credits row for user {user_id} to {initial_amount} credits")
                 return True
+
+            now = datetime.utcnow()
+            period_end = datetime(now.year + (1 if now.month > 6 else 0), ((now.month + 6) % 12) or 12, min(now.day, 28))
 
             response = self.admin.table("credits").insert({
                 "user_id": user_id,

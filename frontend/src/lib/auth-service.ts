@@ -156,6 +156,22 @@ export async function getAccessToken(): Promise<string | null> {
   return session?.access_token ?? null
 }
 
+/** Force a session refresh (used to recover from a 401 on an access token
+ * that expired between page load and the request). Supabase already
+ * auto-refreshes in the background for active sessions; this is an
+ * explicit one-shot fallback for the API client. */
+export async function refreshSession() {
+  if (!isSupabaseConfigured) return null
+  try {
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase.auth.refreshSession()
+    if (error) return null
+    return data.session
+  } catch {
+    return null
+  }
+}
+
 export function onAuthStateChange(
   callback: (event: string, session: unknown) => void
 ) {

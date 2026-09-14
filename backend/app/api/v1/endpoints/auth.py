@@ -3,21 +3,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 import uuid
 from app.db.database import get_db
-from app.db.supabase import get_supabase
+from app.db.supabase import get_supabase, get_supabase_admin
 from app.schemas.auth import (
     UserCreate, UserResponse, TokenResponse, LoginRequest, RefreshTokenRequest, SignUpResponse
 )
 from app.core.config import settings
 from app.core.security import create_access_token, create_refresh_token, verify_token, hash_password
+from app.core.supabase_auth import verify_supabase_token
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import timedelta, datetime
 import structlog
+
+# NOTE ON AUTH ARCHITECTURE:
+# The production frontend authenticates users directly against Supabase Auth
+# and never calls the /login or /register endpoints below — it sends the
+# Supabase-issued access token straight to the protected endpoints, verified
+# by get_current_user() via app.core.supabase_auth.verify_supabase_token().
+#
+# The /login, /register, /refresh endpoints and DEMO_USERS in this file are a
+# legacy, backend-minted-JWT path kept only for local/demo-mode use (e.g.
+# DEMO_MODE=True with no Supabase configured). They are NOT part of the real
+# auth flow and must not be reintroduced into the frontend's request path.
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 security = HTTPBearer()
 logger = structlog.get_logger()
 
-DEMO_USERS = {}
+DEMO_USERS = {}  # Legacy/demo-mode only — see note above.
 
 
 def get_demo_user(email: str, password: str = None) -> Optional[dict]:
@@ -235,8 +247,15 @@ async def logout(token: str = Depends(lambda: None)):
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security)
 ):
+    """THE authentication dependency for every protected endpoint.
+
+    Verifies the token as a genuine Supabase-issued access token (see
+    app.core.supabase_auth) — this is what the production frontend actually
+    sends. The Supabase user UUID (`sub` claim) is the canonical identity;
+    it is never regenerated, mixed with a backend-minted JWT, or replaced.
+    """
     token = credentials.credentials
-    payload = verify_token(token)
+    payload = await verify_supabase_token(token)
 
     if not payload:
         raise HTTPException(
@@ -246,6 +265,7 @@ async def get_current_user(
 
     user_id = payload.get("sub")
     user_email = payload.get("email", "")
+    user_metadata = payload.get("user_metadata") or {}
 
     if settings.DEMO_MODE or not settings.SUPABASE_KEY:
         return {
@@ -260,12 +280,40 @@ async def get_current_user(
         supabase = get_supabase()
         user_data = supabase.table("users").select("*").eq("id", user_id).execute()
 
-        if not user_data.data:
-            raise HTTPException(status_code=401, detail="User not found")
+        if user_data.data:
+            return user_data.data[0]
 
-        user = user_data.data[0]
-        return user
+        # Token is valid and belongs to a real Supabase auth user, but no
+        # `public.users` row exists yet. The `handle_new_user()` trigger
+        # (supabase_migration.sql) should normally create this row on
+        # signup; this is a deterministic, non-destructive safety net for
+        # the case where it hasn't run (trigger missing/race on first
+        # request). It creates the row exactly once and never overwrites
+        # an existing one — if insert fails (e.g. a concurrent insert by
+        # the trigger already created it), it re-reads rather than retries.
+        try:
+            admin = get_supabase_admin()
+            inserted = admin.table("users").insert({
+                "id": user_id,
+                "email": user_email,
+                "full_name": user_metadata.get("full_name", ""),
+                "role": "free",
+                "onboarding_done": False,
+            }).execute()
+            if inserted.data:
+                logger.info(f"Created users row for Supabase auth user {user_id}")
+                return inserted.data[0]
+        except Exception as insert_err:
+            logger.warning(f"users row insert failed (may already exist): {insert_err}")
 
+        user_data = supabase.table("users").select("*").eq("id", user_id).execute()
+        if user_data.data:
+            return user_data.data[0]
+
+        raise HTTPException(status_code=401, detail="User not found")
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Get current user error: {str(e)}")
         raise HTTPException(status_code=401, detail="Authentication failed")

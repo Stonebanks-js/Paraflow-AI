@@ -1,15 +1,26 @@
 from typing import Optional, List
 from uuid import UUID
+from datetime import datetime
 import numpy as np
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.models import WritingDNAProfile
+from app.db.supabase import get_supabase, get_supabase_admin
 import structlog
 
 logger = structlog.get_logger()
 
 
 class WritingDNAService:
+    """Persists Writing DNA profiles via Supabase (public.writing_dna_profiles).
+
+    Previously this service used a SQLAlchemy AsyncSession from the app's
+    abandoned SQLAlchemy/Postgres scaffolding (app.db.database.get_db()),
+    which yields None in production — every call here crashed with
+    AttributeError. Production uses Supabase directly everywhere else
+    (auth, billing); this now matches that, storing the full analysis in
+    the `profile_data` JSONB column the migration already defines, so no
+    schema change is needed.
+    """
+
     DIMENSIONS = [
         "vocabulary_richness",
         "formality_score",
@@ -20,59 +31,69 @@ class WritingDNAService:
         "structure_score"
     ]
 
-    def __init__(self, db: AsyncSession):
-        self.db = db
+    def __init__(self, db=None):
+        # `db` accepted for call-site compatibility; unused (see docstring).
+        self.supabase = get_supabase()
+        self.admin = get_supabase_admin()
 
     async def create_profile(self, user_id: UUID, samples: List[str]) -> WritingDNAProfile:
         analysis = await self._analyze_samples(samples)
-
-        embedding = await self._generate_embedding(analysis)
-
-        profile = WritingDNAProfile(
-            user_id=user_id,
-            style_embedding=embedding,
-            vocabulary_richness=analysis["vocabulary_richness"],
-            formality_score=analysis["formality_score"],
-            sentence_length_avg=analysis["sentence_length_avg"],
-            tone_score=analysis["tone_score"],
-            burstiness_score=analysis["burstiness_score"],
-            rhythm_score=analysis["rhythm_score"],
-            structure_score=analysis["structure_score"],
-            sample_count=len(samples),
-            is_active=True
-        )
-        self.db.add(profile)
-        await self.db.commit()
-        await self.db.refresh(profile)
-        return profile
+        return await self._upsert_profile(user_id, analysis, sample_count=len(samples))
 
     async def get_profile(self, user_id: UUID) -> Optional[WritingDNAProfile]:
-        result = await self.db.execute(
-            select(WritingDNAProfile).where(WritingDNAProfile.user_id == user_id)
-        )
-        return result.scalar_one_or_none()
+        response = self.supabase.table("writing_dna_profiles").select("*").eq("user_id", str(user_id)).execute()
+        if not response.data:
+            return None
+        return self._row_to_profile(response.data[0])
 
     async def update_profile(self, user_id: UUID, samples: List[str]) -> Optional[WritingDNAProfile]:
-        profile = await self.get_profile(user_id)
-        if not profile:
+        existing = await self.get_profile(user_id)
+        if not existing:
             return None
 
-        analysis = await self._analyze_samples(samples, existing_profile=profile)
+        analysis = await self._analyze_samples(samples, existing_profile=existing)
+        new_sample_count = existing.sample_count + len(samples)
+        return await self._upsert_profile(user_id, analysis, sample_count=new_sample_count)
+
+    async def _upsert_profile(self, user_id: UUID, analysis: dict, sample_count: int) -> WritingDNAProfile:
         embedding = await self._generate_embedding(analysis)
+        profile_data = {
+            **analysis,
+            "sample_count": sample_count,
+            "is_active": True,
+            "style_embedding": embedding,
+        }
+        row = {
+            "user_id": str(user_id),
+            "profile_data": profile_data,
+            "dominant_style": "formal" if analysis["formality_score"] >= 50 else "casual",
+            "vocabulary_score": round(analysis["vocabulary_richness"]),
+            "sentence_variation_score": round(analysis["burstiness_score"]),
+            "readability_score": round(analysis["rhythm_score"]),
+        }
+        response = self.admin.table("writing_dna_profiles").upsert(row, on_conflict="user_id").execute()
+        if not response.data:
+            raise RuntimeError("Failed to persist Writing DNA profile")
+        return self._row_to_profile(response.data[0])
 
-        profile.style_embedding = embedding
-        profile.vocabulary_richness = analysis["vocabulary_richness"]
-        profile.formality_score = analysis["formality_score"]
-        profile.sentence_length_avg = analysis["sentence_length_avg"]
-        profile.tone_score = analysis["tone_score"]
-        profile.burstiness_score = analysis["burstiness_score"]
-        profile.rhythm_score = analysis["rhythm_score"]
-        profile.structure_score = analysis["structure_score"]
-        profile.sample_count = profile.sample_count + len(samples)
-
-        await self.db.commit()
-        await self.db.refresh(profile)
-        return profile
+    def _row_to_profile(self, row: dict) -> WritingDNAProfile:
+        data = row.get("profile_data") or {}
+        return WritingDNAProfile(
+            id=row["id"],
+            user_id=row["user_id"],
+            style_embedding=data.get("style_embedding"),
+            vocabulary_richness=data.get("vocabulary_richness", 0.0),
+            formality_score=data.get("formality_score", 0.0),
+            sentence_length_avg=data.get("sentence_length_avg", 0.0),
+            tone_score=data.get("tone_score", 0.0),
+            burstiness_score=data.get("burstiness_score", 0.0),
+            rhythm_score=data.get("rhythm_score", 0.0),
+            structure_score=data.get("structure_score", 0.0),
+            sample_count=data.get("sample_count", 0),
+            is_active=data.get("is_active", True),
+            created_at=row.get("created_at") or datetime.utcnow().isoformat(),
+            updated_at=row.get("updated_at") or datetime.utcnow().isoformat(),
+        )
 
     async def _analyze_samples(
         self,

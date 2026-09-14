@@ -1538,3 +1538,170 @@ When a CORS preflight returns 400, check:
 ## Commit
 
 `aa39ecc` - "fix(cors): Add allow_origin_regex for Vercel preview, log CORS config, fix health endpoint query param"
+
+---
+
+# Phase 12 - Supabase Authentication Architecture Resolution
+
+**Date:** 2026-09-14
+**Status:** ROOT CAUSE FIXED IN CODE — full live-browser verification still required (see "Not Verified" below)
+
+## Exact Root Cause
+
+`backend/app/core/security.py::verify_token()` validated every incoming bearer
+token with `jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=["HS256"])`
+— a secret the backend invents itself (`JWT_SECRET_KEY`, set independently on
+Render). The frontend never used that secret. It authenticates directly
+against Supabase Auth (`frontend/src/lib/auth-service.ts`, all `supabase.auth.*`
+calls) and sends the **Supabase-issued** access token on every request
+(`frontend/src/lib/api.ts` → `getAccessToken()` → `supabase.auth.getSession()`).
+
+A Supabase-issued token can never verify against a locally-invented HS256
+secret it wasn't signed with. `verify_token()` always returned `None` for
+real frontend requests, so `get_current_user()`
+(`backend/app/api/v1/endpoints/auth.py`) always raised `401 Invalid or
+expired token` — for every user, on every protected endpoint (`/tools/*`,
+`/users/*`, `/billing/*`, `/health/score`, `/writing-dna/*`, `/agents/studio`),
+regardless of `DEMO_MODE`. This is confirmed by direct code inspection (not a
+subagent claim) — see `security.py:29-34` and `auth.py:235-271` as they stood
+before this fix.
+
+### Evidence: this project's actual signing mechanism
+
+Queried live, unauthenticated, no secrets required:
+`GET https://txpatnmsigkmmgrbhbel.supabase.co/auth/v1/.well-known/jwks.json`
+→ `200 {"keys":[{"alg":"ES256","kty":"EC","kid":"7a5501d0-...","crv":"P-256",...}]}`
+
+This project uses **JWKS-based asymmetric ES256 signing** (the modern
+Supabase default), not the legacy HS256 shared-secret model. The fix below
+verifies against this live JWKS endpoint, with an HS256 fallback path in case
+the project's signing mode ever changes (auto-detected per-token from the JWT
+header, no code change needed either way).
+
+### Why prior phases' "Authentication works (Supabase session-based)" claims (Phase 8, Step 6-7) were not reliable evidence
+
+Phase 8's "production" verification of the 7 engine routes did not record
+what bearer token was used. The backend's own `/auth/login` endpoint also
+checks the password against Supabase and then returns a **backend-minted**
+token (signed with the same `JWT_SECRET_KEY` that `verify_token()` checks) —
+a token obtained that way would pass the old `verify_token()`, while a token
+obtained the way the real browser actually gets one (via
+`supabase.auth.signInWithPassword` / `getSession()`, never touching
+`/auth/login`) would not. The most likely explanation is Phase 8's curl test
+used a backend-minted token, not a genuine browser-session token, producing a
+"PASS" that was never actually representative of the deployed frontend.
+
+## Authentication Architecture — Before
+
+```
+Browser → Supabase Auth → Supabase-issued access token (ES256, JWKS)
+       → frontend/src/lib/api.ts → Authorization: Bearer <token>
+       → FastAPI get_current_user()
+       → verify_token(token) → jwt.decode(token, JWT_SECRET_KEY, ["HS256"])
+       → signature mismatch → None → 401 "Invalid or expired token"
+```
+
+Two parallel, non-interoperating auth systems existed: Supabase Auth (what
+the frontend actually used) and a bespoke backend-minted JWT system
+(`/auth/login`, `/auth/register`, `create_access_token`/`verify_token`,
+`DEMO_USERS`) that the frontend never called but that `get_current_user`
+was actually checking against.
+
+## Authentication Architecture — After
+
+```
+Browser → Supabase Auth → Supabase-issued access token (ES256, JWKS)
+       → frontend/src/lib/api.ts → Authorization: Bearer <token>   [UNCHANGED]
+       → FastAPI get_current_user()
+       → verify_supabase_token(token)   [backend/app/core/supabase_auth.py, NEW]
+           - reads alg from JWT header
+           - ES256/RS256: fetches/caches JWKS from
+             {SUPABASE_URL}/auth/v1/.well-known/jwks.json, verifies against
+             the matching `kid`
+           - HS256 (legacy projects only): verifies against
+             SUPABASE_JWT_SECRET if configured
+           - validates issuer (`{SUPABASE_URL}/auth/v1`), audience
+             (`authenticated`), expiry, and that `sub` is present
+       → payload.sub = canonical Supabase user UUID
+       → look up public.users row by id
+           - found → return it (existing users: unchanged, no reset)
+           - not found → insert once (safety net if handle_new_user()
+             trigger hasn't fired yet), never overwrites an existing row
+       → 200, correct user identity, correct existing credits
+```
+
+`SUPABASE AUTH = single authority`, `SUPABASE user UUID (sub) = single
+identity`, `SUPABASE JWT = the only token verified` — no second JWT is
+minted or required for the real request path. The legacy backend-minted-JWT
+endpoints (`/auth/login`, `/auth/register`, `DEMO_USERS`) are left in place
+(unused by the frontend, isolated, now clearly commented as legacy) rather
+than deleted, per "do not delete blindly."
+
+## Files Changed
+
+| File | Change |
+|---|---|
+| `backend/app/core/supabase_auth.py` | **New.** `verify_supabase_token()` — JWKS/ES256/RS256 verification (live-fetched, cached 1h) with HS256/`SUPABASE_JWT_SECRET` fallback. Validates issuer, audience, expiry, signature. |
+| `backend/app/api/v1/endpoints/auth.py` | `get_current_user()` now calls `verify_supabase_token()` instead of the backend-local `verify_token()`. On a valid token with no matching `public.users` row, inserts one once (never overwrites). Legacy `/auth/login` etc. commented as legacy/unused-by-frontend, left functional for demo mode. |
+| `backend/app/core/security.py` | Removed the insecure hardcoded `JWT_SECRET_KEY` default (`"your-secret-key-change-in-production"`); legacy `create_access_token`/`create_refresh_token`/`verify_token` now require it explicitly and are documented as demo-mode-only, not part of Supabase verification. |
+| `backend/app/core/config.py` | Added `SUPABASE_JWT_SECRET` (optional, HS256-legacy-fallback only). `JWT_SECRET_KEY` default changed from a known string to empty. |
+| `backend/app/services/billing_service.py` | **P0 credits bug**, found during this pass: `_get_or_create_credits_row()` was unconditionally resetting an existing user's balance to 100 on every call. Fixed to create-once, never reset an existing row. |
+| `backend/app/services/writing_dna_service.py` | Rewritten to persist via Supabase (`public.writing_dna_profiles`, using the existing `profile_data` JSONB column) instead of the abandoned SQLAlchemy path (`db/database.py::get_db()` yields `None` in production — every call previously crashed). No schema change. |
+| `backend/app/api/v1/endpoints/writing_dna.py` | Added missing `logger` import/definition (the demo-mode error path referenced an undefined `logger`, a latent `NameError`). |
+| `backend/app/main.py` | `/api/debug` no longer returns `SUPABASE_URL`/`SUPABASE_KEY` (was leaking the project URL and anon key to any unauthenticated caller); now returns only non-secret booleans/config. |
+| `backend/.env.example` | **Scrubbed real, live-looking Supabase anon/service-role keys and `JWT_SECRET_KEY` that were committed to this file** (found during the audit preceding this fix) — replaced with placeholders. Documented new `SUPABASE_JWT_SECRET` var. |
+| `.env.example` (root) | Same `SUPABASE_JWT_SECRET` documentation; also replaced the stale NVIDIA/Anthropic/Claude provider block (obsolete since the Phase 7 Gemini migration) with the actual current Gemini vars, matching `backend/.env.example`. |
+| `frontend/src/lib/auth-service.ts` | Added `refreshSession()` export (explicit one-shot Supabase session refresh). |
+| `frontend/src/lib/api.ts` | On a `401` (and only when the caller didn't pass an explicit token), attempts one `refreshSession()` + retry before surfacing `"Your session has expired. Please log in again."` Token-attachment pattern itself (`getAccessToken()` → `Authorization: Bearer`) is unchanged — it was already correct. |
+
+**Not changed:** CORS config, Gemini provider/factory, engine implementations, `NEXT_PUBLIC_API_URL` resolution, the frontend's per-request `getSession()` pattern, Supabase schema/RLS/migration.
+
+## Tests Performed
+
+**Local, against the real Supabase project's public JWKS endpoint (no user credentials involved/available in this environment):**
+- `python -m py_compile` on every edited backend file — clean.
+- Full app import (`from app.main import app`) — clean, no import errors.
+- Backend started locally (`uvicorn`, `DEMO_MODE=False`, real `SUPABASE_URL`):
+  - `GET /api/health` → `200 {"status":"healthy",...}`
+  - `GET /api/debug` → `200`, confirmed no `SUPABASE_URL`/`SUPABASE_KEY`/any secret in the response body
+  - `GET /api/v1/users/me` with no token → `401`
+  - `GET /api/v1/users/me` with a garbage token → `401`
+  - `GET /api/v1/users/me` with a well-formed, correctly-`kid`-tagged, but **forged-signature** ES256 token → server log confirms it fetched the real JWKS (`supabase_jwks.refreshed, key_count:1`), attempted verification, and correctly rejected it (`Signature verification failed` → `401 Invalid or expired token`). Confirms the full JWKS-fetch-and-verify code path executes correctly end-to-end for the reject case.
+  - Server logs never contained the token, JWKS key material, or any secret — only structured event metadata.
+- Frontend: `npx tsc --noEmit` → 0 errors. `next build` → succeeded, 19 routes, same route count as prior phases, 0 build errors.
+
+## NOT Verified (explicitly — no fabricated pass)
+
+I do not have a real Supabase user account, Supabase MCP access, or a
+service-role key I'm willing to use (the ones in this repo's history are
+being treated as compromised — see below) to obtain a genuine, valid
+Supabase-issued access token from this environment. I could not test:
+- The **accept-a-valid-token** path end-to-end (only the reject-an-invalid-token path was verified above).
+- Real signup → `handle_new_user()` trigger → `users`/`credits` rows created correctly.
+- Real login → existing user resolved, existing credits preserved (not reset).
+- Google/GitHub OAuth round-trip.
+- Any of the 8 engines returning a real result to a real authenticated browser session.
+- Live Vercel + Render production endpoints (only local backend + local JWKS query were tested).
+
+**This needs to be verified by you in the actual browser against the deployed
+(or a freshly redeployed) app** — register or log in on
+`https://paraflow-ai-frontend.vercel.app`, and confirm the dashboard loads,
+credits show correctly, and a tool (e.g. Paraphraser) returns a real result.
+If Render hasn't picked up this commit yet, it needs a redeploy first (and
+`SUPABASE_JWT_SECRET` does NOT need to be set for this project, since it
+uses JWKS — only set it if a future `/api/debug`-visible signal or a failed
+login suggests the project has been switched to legacy HS256 signing).
+
+## Security Changes
+
+- Removed the insecure hardcoded `JWT_SECRET_KEY` default.
+- `/api/debug` no longer exposes `SUPABASE_URL`/`SUPABASE_KEY`.
+- **Scrubbed live secrets (Supabase anon key, service-role key, `JWT_SECRET_KEY`) that were committed in `backend/.env.example`.** These were already present in git history before this session and this repo is public — rotating them in the Supabase dashboard (and setting the new values only in Render's environment variables, never in a committed file) is a required, separate manual step, independent of this code fix.
+- No tokens, secrets, or JWKS key material are logged anywhere in the new code path (verified in the local test above).
+
+## Remaining Issues / Known Follow-ups (not fixed in this pass, out of scope for the auth P0)
+
+- `backend/app/api/v1/endpoints/auth.py`'s legacy `/auth/login`/`/auth/register`/`DEMO_USERS` path still exists, isolated and commented, not deleted (per instruction to not delete blindly).
+- The `handle_new_user()` trigger seeds new users with **10** credits (`supabase_migration.sql`); `deduct_credits()` creates a missing row with **100** if the trigger hasn't fired. This pre-existing inconsistency was not resolved — no product-requirements evidence was available to pick one value over the other.
+- Refresh-token-as-access-token replay (no `type` claim check) in the legacy backend JWT path — not in scope of this fix since that path is no longer used for real authentication.
+- The Vercel-wildcard CORS regex (`https://.*\.vercel\.app`) was left untouched per explicit instruction, though it remains broader than strictly necessary.

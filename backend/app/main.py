@@ -136,15 +136,16 @@ async def health_check():
 
 @app.get("/api/debug")
 async def debug_settings():
+    # Deliberately does not return SUPABASE_URL/SUPABASE_KEY or any other
+    # secret/key value — this endpoint is unauthenticated. Only booleans and
+    # non-sensitive config are exposed for production diagnostics.
     return {
-        "DEMO_MODE": settings.DEMO_MODE,
-        "SUPABASE_URL": settings.SUPABASE_URL,
-        "SUPABASE_KEY": settings.SUPABASE_KEY,
-        "condition": settings.DEMO_MODE or not settings.SUPABASE_KEY,
-        "ACTIVE_PROVIDER": settings.ACTIVE_PROVIDER,
-        "ACTIVE_MODEL": settings.ACTIVE_MODEL or settings.GEMINI_MODEL,
-        "LLM_TIMEOUT_SECONDS": settings.LLM_TIMEOUT_SECONDS,
-        "GEMINI_API_KEY_set": bool(settings.GEMINI_API_KEY),
+        "demo_mode": settings.DEMO_MODE,
+        "supabase_configured": bool(settings.SUPABASE_URL and settings.SUPABASE_KEY),
+        "active_provider": settings.ACTIVE_PROVIDER,
+        "active_model": settings.ACTIVE_MODEL or settings.GEMINI_MODEL,
+        "llm_timeout_seconds": settings.LLM_TIMEOUT_SECONDS,
+        "gemini_api_key_set": bool(settings.GEMINI_API_KEY),
     }
 
 
