@@ -99,9 +99,14 @@ export function useSEO() {
 }
 
 export function useWritingDNA() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (samples: string[]) =>
       api.post<{ profile_id: string; status: string }>('/v1/writing-dna/enroll', { samples }),
+    // Without this, a successful enroll doesn't refresh the profile query
+    // (still cached from its initial 404-before-first-enroll fetch), so
+    // the new profile never appears until the user manually reloads.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['writing-dna', 'profile'] }),
   });
 }
 
