@@ -1832,3 +1832,79 @@ path with a genuine logged-in user has not been exercised end-to-end.
 paraphrase on a long paragraph (several thousand characters), and confirm
 the health score loads with no 414/CORS error in the Network tab, once
 Render has redeployed this commit.
+
+---
+
+# Phase 14 - Engine Failure Root Cause: RLS/Service-Role Client, Plus Live Browser Verification
+
+**Date:** 2026-09-14
+**Status:** ROOT CAUSE FOUND AND FIXED, VERIFIED LIVE IN THE ACTUAL DEPLOYED BROWSER (not just curl/local) — 3 of 8 engines individually exercised end-to-end; the rest verified at the code level (see below for exactly what that means and doesn't mean).
+
+## Method
+
+This phase did NOT rely on local or curl testing as proof. Using live browser automation against the actual deployed site (`https://paraflow-ai-frontend.vercel.app`) with an existing real logged-in account, every claim below was verified by reading actual Network/Console output from the real browser session, not assumed from code review alone.
+
+## Root Cause (the actual reason engines "didn't work" even after Phase 12/13)
+
+Live-tested `GET /api/v1/users/credits` with the real account's genuine, freshly-verified Supabase access token (extracted client-side from the session; signature/issuer/audience all confirmed correct — the Phase 12 fix itself was working) and got:
+
+```
+401 {"detail":"User not found"}
+```
+
+Root cause: every backend read of the caller's own data (`users`, `credits`, `writing_dna_profiles`) used the **plain anon-key Supabase client**. RLS on these tables is `auth.uid() = id` / `auth.uid() = user_id`, but this backend's anon client never binds a per-request Postgres session to the caller's JWT (no `.auth.set_session()`/equivalent) — so `auth.uid()` is NULL for it, and every such SELECT silently returned empty **regardless of whether the row existed**. (This was actually flagged as a low-priority P2 in the very first audit of this engagement — it turned out to be the real root cause of the engine failures, not a minor issue.)
+
+Concretely, this meant:
+- `get_current_user()`'s anon-client SELECT on `users` always came back empty → its fallback INSERT then hit a duplicate-key conflict (the row already existed, created by the signup trigger) → silently swallowed → re-SELECT (same anon client) again empty → `401 "User not found"` for every real user, on every request.
+- `billing_service.py`'s `_user_exists_in_users()` and `get_balance()` used the same anon client → `deduct_credits()` would have returned "user not found" (not an actual balance issue) for every real user, turning every engine call into a failure regardless of actual credit balance.
+- `writing_dna_service.py`'s `get_profile()` had the same issue.
+
+## Fix
+
+Switched every backend-side read (and the few related writes) of the already-authenticated caller's own data to the **service-role client** (`get_supabase_admin()`), which bypasses RLS — the same pattern already used elsewhere in the codebase for admin writes. This is correct here because the authorization decision was already made by JWT verification (Phase 12); the query itself remains explicitly scoped by `.eq("id"/"user_id", ...)`. Fixed in:
+- `backend/app/api/v1/endpoints/auth.py`: `get_current_user()`, and the legacy `register`/`login` endpoints' equivalent reads.
+- `backend/app/api/v1/endpoints/users.py`: profile and credits reads/updates.
+- `backend/app/services/billing_service.py`: `get_balance()`, `_user_exists_in_users()`, `_get_or_create_credits_row()`'s existence check.
+- `backend/app/services/writing_dna_service.py`: `get_profile()`.
+
+Commit: `3ae5f237ed6b8152a057c53ab5686a28948dcdb7`.
+
+**Verified live, post-deploy**, using the same real token: `GET /api/v1/users/credits` → `200 {"balance":10,"tier":"free"}` — real data, matching the actual row created by the signup trigger (10 credits, not the frontend's old hardcoded-looking "100" display elsewhere — see Known Issues below).
+
+## Additional bugs found via live browser testing (not visible from code review or curl)
+
+**1. 8 of 9 tool panels never displayed the `error` state they were setting.** Only `ParaphraserPanel` rendered its error. Reproduced live: humanizing text on the real account correctly returned `402 "Insufficient credits"` (accurate — Paraphraser had already spent 5 of the account's 10 real credits) but the UI showed nothing at all — button just returned to idle, indistinguishable from doing nothing. `WritingDNAPanel` had no error handling at all (unhandled promise rejection). Fixed in commit `c75f62cca3f90678a435950cd47ee8a17e8b7f78`; verified live post-deploy — the same 402 now renders `"Insufficient credits"` visibly in the UI (checked via DOM inspection in the live browser, `document.querySelector('.text-destructive').textContent === "Insufficient credits"`).
+
+**2. `useHealthScore` fired a new, distinct, concurrent request on every keystroke.** Observed ~100+ concurrent `POST /v1/health/score` requests while typing a single paragraph into the Paraphraser (queryKey included the live-changing text, so every keystroke past the 10-char threshold was a cache miss → new request). This adds real load to Render's constrained free-tier backend during exactly the moment a user is about to submit the actual engine request. Debounced to 800ms in the same commit as fix #1.
+
+**3. `WritingDNAPanel`'s successful enroll never refreshed the profile display.** Reproduced live: `POST /v1/writing-dna/enroll` correctly returned `200`, and reloading the page confirmed the profile was genuinely persisted (real radar chart and style guide computed from the submitted samples — this also serves as end-to-end confirmation that the Phase 12-adjacent Supabase-backed rewrite of `WritingDNAService`, done earlier this session, works correctly in production). But without a reload, the UI kept showing the empty enrollment form — `useWritingDNA()` had no `onSuccess` to invalidate the cached (previously-404) profile query. Fixed in commit `8966429`.
+
+## Live Engine Verification (real browser, real account, real Gemini calls where applicable)
+
+| Engine | Tested live? | Result |
+|---|---|---|
+| Paraphraser | **Yes** | 200, real Gemini-generated rewrite rendered correctly in the UI. ~29s latency (Render free tier + Gemini — not a hang; matches prior documented latency). "Paraphrase Complete", correct credit count (5), correct word-count diff shown. |
+| Writing DNA | **Yes** | 200 on enroll; profile genuinely persisted and correctly retrievable (confirmed via reload before the cache-invalidation fix, and should now appear immediately after that fix without reload). Radar chart and style guide fields all populated with real computed values. |
+| Detector | **Yes** | 200, real heuristic analysis rendered correctly: Human Score 48, AI Score 52, verdict "Mixed", 65% confidence, full breakdown and insights panels populated. No Gemini call (by design — heuristic-only engine). |
+| Humanizer | **Yes (negative path)** | Correctly returned `402 Insufficient credits` (real balance was 5, cost is 10) — this is the billing system working correctly, not a bug. Confirmed the error now displays (fix #1). The accept-path (sufficient balance) was not exercised live due to the real account's limited remaining credits (2 left after this session's testing). |
+| Grammar, Summarizer, Translator, SEO, Agent Studio | **Not live-tested this session** (to avoid exhausting the real account's remaining credits) | Verified at the code level: `backend/app/ai/engines/*.py` read in full for all — each makes genuine engine-specific Gemini prompts (or heuristic analysis for SEO) with real local fallbacks only on provider failure, no fake/echo/placeholder output. Frontend panels read in full — each correctly consumes its backend response's exact field names (zero contract mismatches found across all 9 panels, cross-checked against `backend/app/schemas/tools.py` and each engine's actual response dict). These share the identical `get_current_user`/billing/`generate_dict()` pipeline just proven live for Paraphraser and Detector, so the same fixes apply, but "the code matches on inspection" is weaker evidence than an actual live 200 with a rendered result — if any of these still misbehave, they should be reported directly rather than assumed fixed. |
+
+## Known, Explicitly Not Fixed This Session
+
+- The dashboard sidebar's cached credit display (`useUserStore`, Zustand-persisted) can show a stale value (observed "100 credits" in the sidebar while the main dashboard correctly showed the real "10") — this is the pre-existing dual-token-store leftover flagged in the original audit (§6/§17 of the first report), not something touched this session.
+- Grammar/Summarizer/Translator/SEO/Agent Studio's accept-path was not exercised live (see table above) — code-verified only.
+- The `handle_new_user()` trigger's 10-credit seed vs. `deduct_credits()`'s 100-credit fallback-create inconsistency (flagged in Phase 12) remains unresolved.
+
+## Tests Performed
+
+- Backend: `py_compile` + full app import clean for all edited files, across two separate rounds.
+- Frontend: `tsc --noEmit` and `next build` clean (19 routes, 0 errors) after each round of changes.
+- Live browser (the actual authority per this phase's instructions): see tables and narrative above — Network tab, Console tab, and direct DOM inspection all used to verify actual behavior, not just HTTP status codes.
+
+## Commits
+
+| Commit | Description |
+|---|---|
+| `3ae5f237ed6b8152a057c53ab5686a28948dcdb7` | Service-role client for backend-side user data reads (the core fix) |
+| `c75f62cca3f90678a435950cd47ee8a17e8b7f78` | Surface tool-panel errors to the user; debounce health-score requests |
+| `8966429` | Invalidate writing-dna profile query after successful enroll |
