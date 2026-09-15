@@ -154,8 +154,7 @@ TRANSLATION TYPE: ${translationType}
 
 CONFIDENCE
 ----------
-Overall Confidence: ${Math.round((translateMutation.data?.confidence || 0) * 100)}%
-Quality Score: ${qualityScore}/100
+${hasConfidence ? `Overall Confidence: ${Math.round(confidence * 100)}%\nQuality Score: ${qualityScore}/100` : 'Not available for this translation.'}
 
 STATISTICS
 ----------
@@ -198,7 +197,13 @@ ${outputText}
     characters: outputText.length,
   }), [outputText]);
 
-  const confidence = translateMutation.data?.confidence || 0;
+  // The backend's translate engine never actually populates `confidence`
+  // (a deliberate prior choice not to fabricate a number rather than
+  // silently faking one) -- so this is always undefined in practice.
+  // Track that explicitly instead of defaulting to 0, which rendered as
+  // an alarming "0% confidence" next to a genuinely good translation.
+  const hasConfidence = typeof translateMutation.data?.confidence === 'number';
+  const confidence = translateMutation.data?.confidence ?? 0;
   const qualityScore = Math.round(confidence * 100);
 
   const targetLanguage = languages.find(l => l.code === targetLang);
@@ -236,10 +241,12 @@ ${outputText}
                   <Coins className="w-4 h-4" />
                   <span>{creditsUsed} credits</span>
                 </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <Star className="w-4 h-4 text-yellow-500" />
-                  <span className="font-medium">{Math.round(confidence * 100)}% confidence</span>
-                </div>
+                {hasConfidence && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <Star className="w-4 h-4 text-yellow-500" />
+                    <span className="font-medium">{Math.round(confidence * 100)}% confidence</span>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowComparison(!showComparison)}>
@@ -473,21 +480,33 @@ ${outputText}
             {/* Report Tab */}
             {activeTab === "report" && outputText && (
               <div className="space-y-6">
-                {/* Confidence Score */}
-                <div className="flex justify-center">
-                  <div className="flex flex-col items-center">
-                    <ScoreGauge score={qualityScore} size="lg" />
-                    <p className="text-sm font-medium mt-2">Translation Quality</p>
-                    <p className="text-xs text-muted-foreground">Confidence score based on AI assessment</p>
+                {/* Confidence Score -- only shown when the backend actually
+                    provided one; this engine currently doesn't compute a
+                    real confidence value, so faking a gauge here would be
+                    exactly the kind of fake metric this product should
+                    avoid. */}
+                {hasConfidence ? (
+                  <div className="flex justify-center">
+                    <div className="flex flex-col items-center">
+                      <ScoreGauge score={qualityScore} size="lg" />
+                      <p className="text-sm font-medium mt-2">Translation Quality</p>
+                      <p className="text-xs text-muted-foreground">Confidence score based on AI assessment</p>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground text-center">
+                    Confidence scoring isn't available for this translation.
+                  </p>
+                )}
 
                 {/* Quality Metrics */}
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-lg bg-muted/50">
-                    <div className="text-xs text-muted-foreground mb-1">Overall Confidence</div>
-                    <div className="text-2xl font-bold">{Math.round(confidence * 100)}%</div>
-                  </div>
+                  {hasConfidence && (
+                    <div className="p-4 rounded-lg bg-muted/50">
+                      <div className="text-xs text-muted-foreground mb-1">Overall Confidence</div>
+                      <div className="text-2xl font-bold">{Math.round(confidence * 100)}%</div>
+                    </div>
+                  )}
                   <div className="p-4 rounded-lg bg-muted/50">
                     <div className="text-xs text-muted-foreground mb-1">Word Match</div>
                     <div className="text-2xl font-bold">{Math.round((Math.min(outputStats.words / Math.max(inputStats.words, 1), 1.5)) * 100)}%</div>
