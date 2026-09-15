@@ -27,31 +27,55 @@ class GrammarEngine(BaseAIEngine):
 
         issues = self._stage1_rule_based(input_text)
 
-        if not issues:
-            # No issues to fix - return original text and let the LLM verify
-            corrected_text = input_text
+        # Always run the LLM pass. The rule-based scan above only catches a
+        # small fixed list of common misspellings (see _stage1_rule_based)
+        # and cannot detect genuine grammar/syntax errors -- subject-verb
+        # agreement, tense, articles, etc. -- which is this engine's actual
+        # purpose. Previously the LLM call was skipped whenever no
+        # rule-based issue matched, so real grammar errors were silently
+        # never corrected at all (reproduced live: "I has went to the
+        # market yesterday." came back completely unchanged with "no
+        # issues found", since none of its words are in the misspelling
+        # dictionary even though the sentence has an obvious error).
+        system_prompt = (
+            "Fix grammar, spelling, punctuation, and style issues in the following text. "
+            "Preserve the author's voice and the original meaning. "
+            "Return ONLY the corrected text with no explanations, no labels, no quotes, no markdown."
+        )
+        result = generate_dict(
+            system_prompt=system_prompt,
+            user_prompt=input_text,
+            temperature=0.3,
+            max_tokens=1024,
+        )
+        if result.get("status") == "success" and result.get("output"):
+            corrected_text = result["output"]
+        elif issues:
+            corrected_text = self._apply_rule_fixes(input_text, issues)
         else:
-            # Issues found - ask LLM to fix
-            system_prompt = (
-                "Fix grammar, spelling, punctuation, and style issues in the following text. "
-                "Preserve the author's voice and the original meaning. "
-                "Return ONLY the corrected text with no explanations, no labels, no quotes, no markdown."
-            )
-            result = generate_dict(
-                system_prompt=system_prompt,
-                user_prompt=input_text,
-                temperature=0.3,
-                max_tokens=1024,
-            )
-            if result.get("status") == "success" and result.get("output"):
-                corrected_text = result["output"]
-            else:
-                corrected_text = self._apply_rule_fixes(input_text, issues)
+            corrected_text = input_text
+
+        issue_dicts = [self._issue_to_dict(i) for i in issues]
+        if corrected_text.strip() != input_text.strip() and not issue_dicts:
+            # The LLM changed the text in a way the rule-based scan didn't
+            # catch (the common case -- real grammar errors). Represent
+            # that honestly instead of showing "no issues found" next to
+            # visibly different corrected text; this isn't a claim of
+            # precise per-error positions, just an honest summary that a
+            # real correction was made and what it was.
+            issue_dicts = [{
+                "type": "grammar",
+                "message": "Grammar and phrasing improvements applied",
+                "position": 0,
+                "length": len(input_text),
+                "severity": "info",
+                "suggestions": [corrected_text],
+            }]
 
         return {
             "status": "success",
             "corrected_text": corrected_text,
-            "issues": [self._issue_to_dict(i) for i in issues],
+            "issues": issue_dicts,
             "language": language,
         }
 
