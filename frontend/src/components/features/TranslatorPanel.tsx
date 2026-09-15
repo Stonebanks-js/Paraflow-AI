@@ -215,7 +215,7 @@ ${outputText}
     { label: "Improve Flow", action: () => setChatMessage("Improve the natural flow of the translation") },
   ];
 
-  const creditsUsed = 8;
+  const creditsUsed = translateMutation.data?.credits_used ?? 8;
 
   return (
     <div className="space-y-6">

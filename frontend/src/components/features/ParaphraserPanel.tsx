@@ -45,9 +45,9 @@ export function ParaphraserPanel() {
   const [selectedAlternative, setSelectedAlternative] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [processingTime, setProcessingTime] = useState<number>(0);
-  const [creditsUsed, setCreditsUsed] = useState<number>(5);
 
   const paraphraseMutation = useParaphrase();
+  const creditsUsed = paraphraseMutation.data?.credits_used ?? 5;
   const healthQuery = useHealthScore(outputText || inputText);
 
   useEffect(() => {

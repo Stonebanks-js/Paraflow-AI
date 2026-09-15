@@ -32,3 +32,4 @@ class AgentStudioResponse(BaseModel):
     final_score: int
     iterations: list[AgentIteration]
     improvement: int
+    credits_used: Optional[int] = None

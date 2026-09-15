@@ -32,6 +32,7 @@ export interface ToolJob {
   status: 'queued' | 'processing' | 'completed' | 'failed';
   output?: string;
   error?: string;
+  credits_used?: number;
 }
 
 export interface ParaphraseResponse extends ToolJob {
@@ -146,6 +147,7 @@ export interface AgentStudioResponse {
   final_score: number;
   iterations: AgentIteration[];
   improvement: number;
+  credits_used?: number;
 }
 
 export type ToolType =

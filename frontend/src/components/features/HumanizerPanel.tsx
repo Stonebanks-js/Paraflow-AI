@@ -206,7 +206,7 @@ ${changesList.map((c, i) => `${i + 1}. ${c}`).join('\n')}
     { label: "Humanize More", action: () => setTargetPassRate(Math.min(100, targetPassRate + 10)), icon: Zap },
   ];
 
-  const creditsUsed = 10;
+  const creditsUsed = humanizeMutation.data?.credits_used ?? 10;
 
   return (
     <div className="space-y-6">

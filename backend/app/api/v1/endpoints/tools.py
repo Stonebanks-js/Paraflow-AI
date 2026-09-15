@@ -106,6 +106,9 @@ async def _run_tool(
                     user_id=user_id,
                     cost=cost,
                 )
+            # Reflect what was actually deducted, not the nominal cost --
+            # in the rare race above, that's genuinely 0, not `cost`.
+            result["credits_used"] = cost if deducted else 0
             _log("response_sent", engine_seconds=round(engine_seconds, 3),
                  total_seconds=round(_time.monotonic() - t_request_start, 3))
             return result

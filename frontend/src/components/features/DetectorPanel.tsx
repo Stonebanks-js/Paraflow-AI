@@ -164,7 +164,7 @@ export function DetectorPanel() {
     return parts;
   }, [result, inputText]);
 
-  const creditsUsed = 3;
+  const creditsUsed = detectMutation.data?.credits_used ?? 3;
 
   return (
     <div className="space-y-6">

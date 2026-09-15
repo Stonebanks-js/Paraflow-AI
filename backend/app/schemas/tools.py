@@ -16,6 +16,7 @@ class ParaphraseResponse(BaseModel):
     output: Optional[str] = None
     health_score: Optional[int] = None
     word_count_diff: Optional[int] = None
+    credits_used: Optional[int] = None
 
 
 class HumanizeRequest(BaseModel):
@@ -28,6 +29,7 @@ class HumanizeResponse(BaseModel):
     status: str
     output: Optional[str] = None
     detection_scores: Optional[dict] = None
+    credits_used: Optional[int] = None
 
 
 class DetectRequest(BaseModel):
@@ -45,6 +47,7 @@ class DetectResponse(BaseModel):
     job_id: UUID
     status: str
     result: Optional[DetectionResult] = None
+    credits_used: Optional[int] = None
 
 
 class GrammarRequest(BaseModel):
@@ -66,6 +69,7 @@ class GrammarResponse(BaseModel):
     status: str
     corrected_text: Optional[str] = None
     issues: list[GrammarIssue] = []
+    credits_used: Optional[int] = None
 
 
 class SummarizeRequest(BaseModel):
@@ -79,6 +83,7 @@ class SummarizeResponse(BaseModel):
     status: str
     summary: Optional[str] = None
     key_points: list[str] = []
+    credits_used: Optional[int] = None
 
 
 class TranslateRequest(BaseModel):
@@ -93,6 +98,7 @@ class TranslateResponse(BaseModel):
     status: str
     translated_text: Optional[str] = None
     confidence: Optional[float] = None
+    credits_used: Optional[int] = None
 
 
 class PlagiarismRequest(BaseModel):
@@ -132,6 +138,7 @@ class SEOResponse(BaseModel):
     status: str
     analysis: Optional[SEOAnalysis] = None
     health_score: Optional[int] = None
+    credits_used: Optional[int] = None
 
 
 class TransformRequest(BaseModel):

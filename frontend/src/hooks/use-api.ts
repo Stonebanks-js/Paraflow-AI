@@ -117,6 +117,19 @@ export function useWritingDNA() {
   });
 }
 
+export function useUpdateWritingDNA() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (samples: string[]) =>
+      api.post<{ profile_id: string; status: string }>('/v1/writing-dna/update', { samples }),
+    // Cumulative on the backend (adds to the existing sample_count rather
+    // than resetting it like /enroll would) -- used once a profile already
+    // exists, so repeat use actually grows toward "active"/"mature"
+    // instead of being capped at whatever a single enroll call submitted.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['writing-dna', 'profile'] }),
+  });
+}
+
 export function useWritingDNAProfile() {
   return useQuery<WritingDNAProfile>({
     queryKey: ['writing-dna', 'profile'],

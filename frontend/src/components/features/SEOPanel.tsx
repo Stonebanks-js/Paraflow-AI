@@ -135,7 +135,7 @@ export function SEOPanel() {
     }));
   }, [analysis]);
 
-  const creditsUsed = 5;
+  const creditsUsed = seoMutation.data?.credits_used ?? 5;
 
   return (
     <div className="space-y-6">

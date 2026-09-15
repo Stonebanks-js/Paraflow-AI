@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
 from app.db.supabase import get_supabase_admin
@@ -9,6 +10,11 @@ import structlog
 
 router = APIRouter(prefix="/users", tags=["users"])
 logger = structlog.get_logger()
+
+
+class UpdateUserRequest(BaseModel):
+    full_name: str | None = None
+    onboarding_done: bool | None = None
 
 
 @router.get("/me", response_model=UserResponse)
@@ -49,8 +55,7 @@ async def get_current_user_profile(current_user: dict = Depends(get_current_user
 
 @router.patch("/me")
 async def update_current_user(
-    full_name: str = None,
-    onboarding_done: bool = None,
+    request: UpdateUserRequest,
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -61,10 +66,10 @@ async def update_current_user(
         user_id = current_user["id"] if isinstance(current_user, dict) else current_user.get("id")
 
         updates = {}
-        if full_name is not None:
-            updates["full_name"] = full_name
-        if onboarding_done is not None:
-            updates["onboarding_done"] = onboarding_done
+        if request.full_name is not None:
+            updates["full_name"] = request.full_name
+        if request.onboarding_done is not None:
+            updates["onboarding_done"] = request.onboarding_done
 
         if updates:
             # Service-role write: see note in auth.py's get_current_user().

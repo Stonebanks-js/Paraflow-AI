@@ -172,6 +172,20 @@ export async function refreshSession() {
   }
 }
 
+export async function updateUserPassword(newPassword: string): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured) {
+    return { error: 'Authentication service is not configured.' }
+  }
+  try {
+    const supabase = getSupabaseClient()
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) return { error: error.message }
+    return { error: null }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Password update failed' }
+  }
+}
+
 export function onAuthStateChange(
   callback: (event: string, session: unknown) => void
 ) {

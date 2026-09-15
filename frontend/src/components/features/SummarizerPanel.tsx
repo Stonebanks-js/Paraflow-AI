@@ -173,7 +173,7 @@ ${keyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}
     { label: "Extract Actions", action: () => setSelectedStyle("action_items") },
   ];
 
-  const creditsUsed = 5;
+  const creditsUsed = summarizeMutation.data?.credits_used ?? 5;
 
   return (
     <div className="space-y-6">

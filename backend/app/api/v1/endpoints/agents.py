@@ -40,9 +40,12 @@ async def run_agent_studio(
         active_agents=request.active_agents
     )
 
+    credits_used = 0
     if result.get("status") in ("success", "completed"):
         deducted = await billing.deduct_credits(user_id, cost, "agent_studio")
-        if not deducted:
+        if deducted:
+            credits_used = cost
+        else:
             import structlog
             structlog.get_logger().warning(
                 "agent_studio.deduct_after_success_failed",
@@ -69,5 +72,6 @@ async def run_agent_studio(
         initial_score=result["initial_score"],
         final_score=result["final_score"],
         iterations=iterations,
-        improvement=result["improvement"]
+        improvement=result["improvement"],
+        credits_used=credits_used
     )

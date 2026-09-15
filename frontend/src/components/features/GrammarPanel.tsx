@@ -254,7 +254,7 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
     { label: "Shorten Text", icon: TrendingUp, action: () => setChatMessage("Make this more concise while keeping key points") },
   ];
 
-  const creditsUsed = 3;
+  const creditsUsed = grammarMutation.data?.credits_used ?? 3;
 
   return (
     <div className="space-y-6">
