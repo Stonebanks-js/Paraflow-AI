@@ -84,7 +84,14 @@ class AgentStudioService:
                     messages.append({
                         "agent": agent,
                         "message": result.get("message", ""),
-                        "timestamp": time.time()
+                        # AgentMessage.timestamp is typed str -- passing the
+                        # raw float here caused an unhandled Pydantic
+                        # ValidationError when building the response (every
+                        # session with at least one successful agent hit
+                        # this), which the browser surfaced only as an
+                        # opaque "Failed to fetch" since the resulting 500
+                        # response wasn't CORS-tagged.
+                        "timestamp": str(time.time())
                     })
 
         analysis = await self._analyze_text(current_text)
