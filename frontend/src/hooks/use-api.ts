@@ -56,9 +56,16 @@ export function useHumanize() {
 }
 
 export function useDetect() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (text: string) =>
       api.post<DetectResponse>('/v1/tools/detect', { text }),
+    // Every other tool mutation invalidates ['credits'] on success; this
+    // one didn't, found via live testing -- the real backend balance was
+    // correct (deducted properly) but the sidebar/dashboard kept showing
+    // the pre-Detector value until something else happened to refetch
+    // (the 30s poll interval, or another engine's mutation succeeding).
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['credits'] }),
   });
 }
 
