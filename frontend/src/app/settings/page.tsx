@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { useUserStore } from "@/stores";
 import { useCredits } from "@/hooks/use-api";
 import { api } from "@/lib/api";
-import { updateUserPassword } from "@/lib/auth-service";
+import { updateUserFullName, updateUserPassword } from "@/lib/auth-service";
 import { User, Lock, SlidersHorizontal, CheckCircle2, Mail, Calendar, Shield } from "lucide-react";
 
 const container = {
@@ -70,8 +70,15 @@ export default function SettingsPage() {
     setProfileSaved(false);
     setProfileSaving(true);
     try {
-      await api.patch("/v1/users/me", { full_name: fullName.trim() });
-      if (user) setUser({ ...user, full_name: fullName.trim() || null });
+      const trimmed = fullName.trim();
+      // Update the Supabase Auth session (the actual source every display
+      // of the name reads from on reload/re-login) as well as the
+      // public.users row (PATCH /users/me) that other backend reads use --
+      // updating only one would leave the two silently out of sync.
+      const { error } = await updateUserFullName(trimmed);
+      if (error) throw new Error(error);
+      await api.patch("/v1/users/me", { full_name: trimmed });
+      if (user) setUser({ ...user, full_name: trimmed || null });
       setProfileSaved(true);
       setTimeout(() => setProfileSaved(false), 3000);
     } catch (err) {

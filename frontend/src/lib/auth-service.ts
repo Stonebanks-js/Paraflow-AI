@@ -172,6 +172,28 @@ export async function refreshSession() {
   }
 }
 
+export async function updateUserFullName(fullName: string): Promise<{ error: string | null }> {
+  if (!isSupabaseConfigured) {
+    return { error: 'Authentication service is not configured.' }
+  }
+  try {
+    const supabase = getSupabaseClient()
+    // Every place that displays the user's name (sidebar, dashboard
+    // greeting, settings overview) derives it from the Supabase Auth
+    // session's user_metadata via mapSupabaseUserToAppUser(), which is
+    // re-read from scratch on every page load / re-login -- not from the
+    // public.users table row. Updating only that table (via PATCH
+    // /users/me) would look saved in the moment (an optimistic local
+    // store update) but silently revert on the next reload, since the
+    // session refetch would overwrite it with the unchanged auth metadata.
+    const { error } = await supabase.auth.updateUser({ data: { full_name: fullName } })
+    if (error) return { error: error.message }
+    return { error: null }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Name update failed' }
+  }
+}
+
 export async function updateUserPassword(newPassword: string): Promise<{ error: string | null }> {
   if (!isSupabaseConfigured) {
     return { error: 'Authentication service is not configured.' }
