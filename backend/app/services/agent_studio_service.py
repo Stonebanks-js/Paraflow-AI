@@ -23,7 +23,7 @@ class AgentStudioService:
         if active_agents is None:
             active_agents = self.AGENTS
 
-        initial_analysis = self._analyze_text(text)
+        initial_analysis = await self._analyze_text(text)
         current_text = text
         current_score = initial_analysis["overall_score"]
 
@@ -87,7 +87,7 @@ class AgentStudioService:
                         "timestamp": time.time()
                     })
 
-        analysis = self._analyze_text(current_text)
+        analysis = await self._analyze_text(current_text)
 
         return {
             "iteration": iteration,
@@ -147,17 +147,43 @@ class AgentStudioService:
 
         return {"status": "no_change", "output": text}
 
-    def _analyze_text(self, text: str) -> Dict[str, Any]:
-        grammar_engine = None
-        readability = 75
-        ai_detection_risk = 30
+    async def _analyze_text(self, text: str) -> Dict[str, Any]:
+        """Score the actual text. Previously this ignored its `text`
+        argument entirely and returned a fixed score (grammar=85,
+        plagiarism=100, seo=70, ...) regardless of content -- meaning the
+        iteration loop below could never detect real improvement, since
+        the "current score" never changed no matter what the agents did
+        to the text. Uses cheap, no-Gemini-call heuristics (Detect/SEO are
+        heuristic-only engines; grammar uses the fast rule-based stage
+        only, not the full LLM-backed engine) so scoring stays fast even
+        though it runs up to max_iterations+1 times per session.
+        """
+        from app.ai.engines.detect_engine import DetectEngine
+        from app.ai.engines.seo_engine import SEOEngine
+        from app.ai.engines.grammar_engine import GrammarEngine
+
+        detect_result = await DetectEngine().process(text)
+        ai_detection_risk = (
+            detect_result["result"]["score"]
+            if detect_result.get("status") == "success"
+            else 30
+        )
+
+        seo_result = await SEOEngine().process(text, {"target_keywords": [], "content_type": "blog"})
+        seo_success = seo_result.get("status") == "success"
+        seo_analysis = seo_result.get("analysis", {}) if seo_success else {}
+        readability = seo_analysis.get("readability_score", 75)
+        seo_score = seo_result.get("health_score", 70) if seo_success else 70
+
+        grammar_issues = GrammarEngine()._stage1_rule_based(text)
+        grammar_score = max(0, 100 - len(grammar_issues) * 10)
 
         health = self.health_score_service.calculate_score(
-            grammar_score=85,
+            grammar_score=grammar_score,
             readability_score=readability,
             plagiarism_score=100,
             ai_detection_score=ai_detection_risk,
-            seo_score=70,
+            seo_score=seo_score,
             tone_score=80
         )
 
