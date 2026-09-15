@@ -411,25 +411,35 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
             {/* Overview Tab */}
             {activeTab === "overview" && (
               <div className="space-y-6">
-                {/* Score Dashboard */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
-                    <ScoreGauge score={overallScore} size="md" showLabel={false} />
-                    <span className="text-sm font-medium mt-2">Overall</span>
+                {/* Score Dashboard -- only shown after a real analysis has
+                    completed. Before that, issues/scores are computed from
+                    an empty/undefined result, which produces a trivial
+                    100/100/100/100 that looks like a real "perfect score"
+                    assessment rather than "nothing has been analyzed yet". */}
+                {outputText ? (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
+                      <ScoreGauge score={overallScore} size="md" showLabel={false} />
+                      <span className="text-sm font-medium mt-2">Overall</span>
+                    </div>
+                    <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
+                      <ScoreGauge score={scores.grammar} size="md" showLabel={false} />
+                      <span className="text-sm font-medium mt-2">Grammar</span>
+                    </div>
+                    <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
+                      <ScoreGauge score={scores.clarity} size="md" showLabel={false} />
+                      <span className="text-sm font-medium mt-2">Clarity</span>
+                    </div>
+                    <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
+                      <ScoreGauge score={scores.engagement} size="md" showLabel={false} />
+                      <span className="text-sm font-medium mt-2">Engagement</span>
+                    </div>
                   </div>
-                  <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
-                    <ScoreGauge score={scores.grammar} size="md" showLabel={false} />
-                    <span className="text-sm font-medium mt-2">Grammar</span>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
+                    <p className="text-sm">Run an analysis to see your writing scores</p>
                   </div>
-                  <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
-                    <ScoreGauge score={scores.clarity} size="md" showLabel={false} />
-                    <span className="text-sm font-medium mt-2">Clarity</span>
-                  </div>
-                  <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
-                    <ScoreGauge score={scores.engagement} size="md" showLabel={false} />
-                    <span className="text-sm font-medium mt-2">Engagement</span>
-                  </div>
-                </div>
+                )}
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
