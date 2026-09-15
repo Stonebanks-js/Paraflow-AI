@@ -2246,3 +2246,25 @@ Fixed at the root: added `credits_used: Optional[int]` to every tool response sc
 Settings, Billing, Agent Studio, and Writing DNA are now genuinely functional and visually consistent with the rest of the product, with every fix reverified live post-deploy rather than assumed from a passing build. Two real, previously-undiscovered bugs (the broken `PATCH /users/me`, the Writing DNA refetch failure) were found specifically because this pass treated "redesign" as license to audit architecture, not just restyle markup, per the brief's own instruction to think like an architect and QA engineer alongside a designer.
 
 This is **not** a claim that every page has been pixel-audited across every breakpoint, nor that this is now a from-scratch visual overhaul — it deliberately is not, for the reasons in "Scope Decision" above. It is a claim that the genuine gaps found (functional and visual) were fixed, verified live, and documented honestly, including the one tooling limitation (live responsive resize) encountered along the way.
+
+## 8. Addendum — Fresh 8-Engine Spot-Check and Responsive Tooling Limitation
+
+**Date:** 2026-09-15 (same session, immediately following)
+
+The user asked for the full 18-item/8-engine sweep this phase's report had flagged as not yet independently re-run (Paraphraser, Humanizer, Detector, Summarizer, Translator, SEO were verified in Phase 17 but not re-touched or re-tested in Phase 18 itself, beyond the shared `credits_used` schema change). Ran it live on a fresh account ("QA Final Sweep", 100 organic starter credits — no manual top-up) so credit-deduction correctness could be checked precisely at every step:
+
+| Engine | Real credits shown | Balance before → after | Deduction correct? | Notes |
+|---|---|---|---|---|
+| Paraphraser | 5 credits | 100 → 95 | Yes | Real output, no truncation |
+| Humanizer | (sidebar-confirmed) | 95 → 85 | Yes (−10) | |
+| Detector | (sidebar-confirmed) | 85 → 82 | Yes (−3) | Confirms the Phase 16 `useDetect` cache-invalidation fix still holds |
+| Summarizer | (sidebar-confirmed) | 82 → 77 | Yes (−5) | |
+| Translator | 8 credits | 77 → 69 | Yes | Hindi translation rendered correctly; no fake "0% confidence" (Phase 17 fix confirmed still holding) |
+| SEO | (sidebar-confirmed) | 69 → 64 | Yes (−5) | |
+| Grammar | 3 credits | (checked earlier this phase) | Yes | Real value from `credits_used`, not the removed hardcoded constant |
+| Agent Studio | 20 credits | (checked earlier this phase) | Yes | Session Complete banner, real processing time |
+| Writing DNA | n/a (free) | — | — | Enroll + cumulative update both verified earlier this phase |
+
+No `undefined`/`NaN` artifacts in any credits display, no console errors across the full run, all 8 engines produced real (non-fake, non-fallback) output.
+
+**Responsive breakpoint testing (375px / 768px / 1440px): not completed, and this is stated plainly rather than glossed over.** `resize_window` was invoked five times across this session at four different target sizes (390×844, 375×812, 1000×700, and others) and reported success every time, but `window.innerWidth` never changed from the desktop window's actual size (2560px) on this tab, including after a full page reload. This was tested to the point of certainty that it's a tooling/environment limitation in this session (the browser window is likely in a maximized state the automation can't override), not a flake worth one more retry. Responsive behavior therefore remains verified only at the code level (the consistent `sm:`/`md:`/`lg:` Tailwind breakpoint usage already documented in section 5 above) — a real device or a differently-configured browser session would be needed to close this out with live pixel verification.
