@@ -25,6 +25,14 @@ export function WritingDNAPanel() {
     setError(null);
     try {
       await enrollMutation.mutateAsync(validSamples);
+      // Belt-and-suspenders alongside useWritingDNA()'s onSuccess cache
+      // invalidation: found live that invalidateQueries() alone did not
+      // reliably trigger a refetch here (the profile query had settled
+      // into an error state from its initial pre-enroll 404, and stayed
+      // there through invalidation). Explicitly refetching is a more
+      // direct, dependable way to make the new profile appear without a
+      // manual page reload.
+      await profileQuery.refetch();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Writing DNA enrollment failed");
     }
