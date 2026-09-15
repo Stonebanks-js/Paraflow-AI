@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/providers/theme-provider";
 import { useUserStore } from "@/stores";
+import { useCredits } from "@/hooks/use-api";
 import {
   Sparkles,
   Home,
@@ -57,7 +58,17 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const pathname = usePathname();
   const { resolvedTheme, setTheme } = useTheme();
-  const { user, credits, logout } = useUserStore();
+  const { user, logout } = useUserStore();
+  // Real, live balance -- NOT useUserStore's `credits` field, which was a
+  // separate, never-updated piece of state that defaulted to a hardcoded
+  // 100 and was never written to anywhere in the app (confirmed: zero
+  // callers of setCredits()). That caused the sidebar to permanently show
+  // a fake "100 credits" regardless of the account's real balance, making
+  // genuine, correct 402 "Insufficient credits" responses from the backend
+  // look like a bug to the user. This hook is the same one the dashboard
+  // and billing page already use, so the sidebar now agrees with them.
+  const creditsQuery = useCredits();
+  const credits = creditsQuery.data?.balance ?? 0;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 

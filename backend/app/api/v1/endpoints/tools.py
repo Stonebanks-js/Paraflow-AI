@@ -70,11 +70,18 @@ async def _run_tool(
     billing = BillingService()
     cost = billing.get_tool_cost(tool_name)
 
-    t_deduct_start = _time.monotonic()
-    has_sufficient = await billing.deduct_credits(user_id, cost, tool_name)
-    _log("billing_deducted", cost=cost, sufficient=has_sufficient, seconds=round(_time.monotonic() - t_deduct_start, 3))
+    # Validate balance WITHOUT deducting yet. Deducting-then-refunding-on-
+    # failure (the previous pattern) meant every request touched the
+    # credits row twice regardless of outcome, and briefly left a user's
+    # balance debited for a call that hadn't actually succeeded. Checking
+    # first means an insufficient balance is rejected before any Gemini
+    # call is made (no wasted request), and a Gemini/engine failure never
+    # touches credits at all.
+    t_check_start = _time.monotonic()
+    current_balance = await billing.get_balance(user_id)
+    _log("credits_checked", cost=cost, balance=current_balance, seconds=round(_time.monotonic() - t_check_start, 3))
 
-    if not has_sufficient:
+    if current_balance < cost:
         raise HTTPException(status_code=402, detail="Insufficient credits")
 
     try:
@@ -84,12 +91,26 @@ async def _run_tool(
         _log("engine_done", seconds=round(engine_seconds, 3), status=result.get("status"))
 
         if result.get("status") in ("success", "completed"):
+            # Deduct only now, after genuine success -- never before.
+            deducted = await billing.deduct_credits(user_id, cost, tool_name)
+            if not deducted:
+                # Balance most likely changed between the check above and
+                # here (e.g. a concurrent request from the same user).
+                # The Gemini call already succeeded and the user is about
+                # to see a real result; don't discard it or make them
+                # redo an expensive AI call over an internal credit-
+                # ledger race. Log it so it's visible, not silent.
+                logger.warning(
+                    "tool.deduct_after_success_failed",
+                    tool=tool_name,
+                    user_id=user_id,
+                    cost=cost,
+                )
             _log("response_sent", engine_seconds=round(engine_seconds, 3),
                  total_seconds=round(_time.monotonic() - t_request_start, 3))
             return result
 
-        await billing.refund_credits(user_id, cost, tool_name)
-        _log("engine_failed_refunded", error=result.get("error", "unknown"))
+        _log("engine_failed_no_charge", error=result.get("error", "unknown"))
         raise HTTPException(
             status_code=500,
             detail=result.get("error", f"{tool_name} processing failed"),
@@ -97,8 +118,7 @@ async def _run_tool(
     except HTTPException:
         raise
     except Exception as e:
-        await billing.refund_credits(user_id, cost, tool_name)
-        _log("exception_refunded", error=str(e)[:200])
+        _log("exception_no_charge", error=str(e)[:200])
         raise HTTPException(status_code=500, detail=f"{tool_name} failed: {str(e)[:200]}")
 
 

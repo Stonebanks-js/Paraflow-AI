@@ -47,23 +47,27 @@ export const useEditorStore = create<EditorState>()(
 interface UserState {
   user: User | null;
   token: string | null;
-  credits: number;
   setUser: (user: User | null) => void;
   setToken: (token: string | null) => void;
-  setCredits: (credits: number) => void;
   logout: () => void;
 }
 
+// Note: credits intentionally does NOT live here. It previously did, as a
+// hardcoded-default-100 field that nothing ever wrote to (zero callers of
+// the old setCredits()), which meant it silently diverged from the real
+// balance and made correct 402 "Insufficient credits" responses look like
+// a bug. The single source of truth for credits is the live
+// GET /v1/users/credits query (see hooks/use-api.ts's useCredits()) --
+// every place that shows a balance (dashboard, billing page, AppShell
+// sidebar) reads from that same query.
 export const useUserStore = create<UserState>()(
   persist(
     (set) => ({
       user: null,
       token: null,
-      credits: 100,
       setUser: (user) => set({ user }),
       setToken: (token) => set({ token }),
-      setCredits: (credits) => set({ credits }),
-      logout: () => set({ user: null, token: null, credits: 0 }),
+      logout: () => set({ user: null, token: null }),
     }),
     { name: 'paraflow-user' }
   )

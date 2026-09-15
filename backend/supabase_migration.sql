@@ -183,7 +183,13 @@ BEGIN
         COALESCE(NEW.raw_user_meta_data->>'full_name', '')
     );
     INSERT INTO public.credits (user_id, amount, period_end)
-    VALUES (NEW.id, 10, NOW() + INTERVAL '30 days');
+    -- 100, not 10: matches the marketing copy ("100 free credits on
+    -- signup", frontend/src/app/page.tsx and register/page.tsx) and the
+    -- backend's own fallback default (BillingService._get_or_create_credits_row's
+    -- initial_amount=100). This trigger previously granted only 10,
+    -- silently contradicting both -- an inconsistency found during a
+    -- credit-system audit, not a deliberate product decision to differ.
+    VALUES (NEW.id, 100, NOW() + INTERVAL '30 days');
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
