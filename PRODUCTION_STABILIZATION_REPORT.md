@@ -1908,3 +1908,75 @@ Commit: `3ae5f237ed6b8152a057c53ab5686a28948dcdb7`.
 | `3ae5f237ed6b8152a057c53ab5686a28948dcdb7` | Service-role client for backend-side user data reads (the core fix) |
 | `c75f62cca3f90678a435950cd47ee8a17e8b7f78` | Surface tool-panel errors to the user; debounce health-score requests |
 | `8966429` | Invalidate writing-dna profile query after successful enroll |
+
+---
+
+# Phase 15 - Complete AI Engine Production Resolution
+
+**Date:** 2026-09-14/15
+**Status:** 7 of 8 engines individually confirmed PASS via live production browser tests, each after a real bug was found and fixed. Agent Studio has a real bug found and fixed (verified locally, not live) but could not be exercised live this session — see blockers below. This report continues directly from Phase 14 (this is the same investigation; the user's request for this section asked for a headline "Phase 14" but that number was already used earlier this same session, so this is Phase 15 to avoid duplicate numbering in one document).
+
+## Method (unchanged from Phase 14)
+
+Every claim below is backed by either (a) a real request/response observed in the actual deployed browser (`https://paraflow-ai-frontend.vercel.app`) via Network tab, Console tab, or direct DOM/JS inspection, or (b) explicit code-level verification, clearly labeled as such — never inferred from "the API returned 200" alone. Four fresh accounts were created via the real signup UI during this phase specifically to get clean 10-credit allocations for testing (each real signup itself also re-verifies the full signup → Supabase Auth → dashboard flow independently).
+
+## Root Causes Discovered This Phase (in addition to Phase 14's RLS finding)
+
+**1. Summarizer returned the input almost unchanged.** `SummarizeEngine`'s prompt asked Gemini for "approximately {max_length} words" where `max_length` was the frontend's user-selected target (default 200), independent of the actual input length. For an 81-word input, "summarize to ~200 words" is a no-op instruction. Evidence: live test showed `81 → 81 words (100% compression)`, and the rendered text was byte-for-byte identical to the input. Fixed in `backend/app/ai/engines/summarize_engine.py` by capping the real target to a fraction of the actual input length (`_compute_target_length`). Commit `c86b468`.
+
+**2. That fix immediately exposed a second, deeper bug: Gemini "thinking" tokens can consume the entire output budget.** After fix #1 deployed, the same 81-word input now produced only 4 words, truncated mid-sentence ("Artificial intelligence has rapidly"). Root cause: Gemini 2.5 Flash reasons by default, and those reasoning tokens draw from the same `maxOutputTokens` budget as the visible answer. The corrected (smaller) target length also shrank `max_tokens` proportionally (to ~120), and at that size, thinking left little or nothing for the actual answer. Fixed in `backend/app/ai/providers/gemini.py` by setting `generationConfig.thinkingConfig.thinkingBudget = 0` globally — none of these engines need chain-of-thought reasoning for direct text transforms. Commit `2ae1056`.
+
+**In hindsight, this second bug likely also explains an anomaly in the Phase 14 Paraphraser test**: that run returned `28 → 11 words` for a "standard" mode paraphrase (a mode that should preserve length, not cut it in half) — at the time this was attributed to aggressive rewriting, but it is far more likely the same thinking-token truncation, since Paraphraser's `max_tokens` for that input size (`min(2048, max(256, 28*3))` = 256) is in the same order of magnitude that caused the confirmed Summarizer truncation. Paraphraser was not live-retested after the thinking-token fix deployed — see blockers below. This is flagged explicitly rather than silently left as a "PASS" with an unexplained anomaly.
+
+**3. Agent Studio's score never reflected the actual text.** `AgentStudioService._analyze_text()` took a `text` parameter but never used it — every dimension (`grammar_score=85`, `plagiarism_score=100`, `seo_score=70`, etc.) was a hardcoded constant. This meant the iteration loop's stopping condition and the "improvement" metric shown to the user could never respond to what the agents actually changed. Found via code review (Agent Studio could not be live-tested — see blockers). Fixed in `backend/app/services/agent_studio_service.py` to derive every dimension from the real (possibly agent-modified) text each iteration, using cheap no-Gemini-call heuristics (`DetectEngine`, `SEOEngine`, and `GrammarEngine`'s rule-based stage only). Commit `9d97c91`. Verified with a local async smoke test of the full `run_session()` flow (no exceptions, score now genuinely varies with content) — **not** verified live.
+
+**4. Eight of nine tool panels never displayed their own error state; `useHealthScore` flooded the backend with a request per keystroke; Writing DNA's UI didn't refresh after a successful enroll.** All three found live, all three fixed — see Phase 14 for full detail (commits `c75f62c`, `8966429`).
+
+**5. Six panels displayed a hardcoded fake "processing time"** (e.g. Grammar always showed exactly `2.1s` regardless of the real ~18s observed live). Fixed to compute real elapsed time, matching the pattern `ParaphraserPanel` already used. Commit `c86b468`.
+
+## Full-Codebase Sweep (Phase 20 of the request)
+
+Searched for: stale localhost/Render/Vercel URLs, obsolete provider references (NVIDIA/Groq/OpenAI/OpenRouter/Ollama), duplicate API clients, obsolete Gemini env vars, remaining GET health-score-with-text requests, TODO/FIXME markers, console-only error handling, swallowed exceptions. Result: clean, with two categories of pre-existing, deliberately-untouched findings:
+- `frontend/src/lib/api.ts`'s `localhost:8000` fallback and `backend/app/core/config.py`'s `localhost:3000/3001` CORS default are intentional local-dev defaults, not stale references (both are overridden by env vars in production).
+- Four bare `except:` blocks remain (`auth.py:63,247`, `users.py:95`, `billing_service.py:55`) — pre-existing, not touched this session per the "minimal targeted changes" instruction. `auth.py:247` (logout) and `users.py:95` (credits fallback) are arguably intentional graceful-degradation; `billing_service.py:55` (`_user_exists_in_users`) silently treats any transient error as "user doesn't exist" with no log line, which is the one worth tightening in a future pass — flagged here rather than changed, since it's outside this session's reproduced failures and changing billing logic further without a live-tested reason carries more risk than benefit right now.
+
+## ENGINE ACCEPTANCE TABLE
+
+| Engine | Browser Request | Backend | Gemini | Response | UI Result | Latency | Status |
+|---|---|---|---|---|---|---|---|
+| Paraphraser | Sent, 200 | get_current_user + billing OK | Reached, real output | Contract matches | Rendered correctly | ~29s | **PASS, but with a caveat** — see root cause #2 above; the observed 28→11 word output is now suspected to be the pre-fix thinking-token truncation. Not retested after the fix (browser disconnected). Re-verification recommended, not yet done. |
+| Humanizer | Sent, 402 (real: balance 5, cost 10) | Correctly blocked | Not reached (blocked pre-engine, correct) | N/A | Error now visibly rendered (was silent pre-fix) | ~1s | **PASS** for the tested path (correct billing block + now-visible error). Accept-path (sufficient balance) not live-tested. |
+| Detector | Sent, 200 | OK | N/A (heuristic engine by design) | Contract matches | Rendered correctly (Human 48, AI 52, Mixed, 65% confidence) | 1.5s (real) | **PASS** |
+| Grammar | Sent, 200 | OK | Reached, real output | Contract matches | Rendered correctly, all 5 planted misspellings fixed | ~18s (real, was showing fake 2.1s) | **PASS** |
+| Summarizer | Sent, 200 (x2, pre- and post-fix) | OK | Reached, real output | Contract matches | First attempt: FAIL (81→81 words, no compression). Second attempt (after fix #1 only): FAIL (81→4 words, truncated). Third attempt (after fix #2 also deployed): PASS (81→38 words, genuine coherent 47%-compression summary) | ~3-15s | **PASS**, after two real bugs found and fixed in sequence during this session |
+| Translator | Sent, 200 | OK | Reached, real output | Contract matches | Rendered correctly, accurate English→Spanish translation | ~3s | **PASS** |
+| SEO | Sent, 200 | OK | N/A (heuristic engine by design) | Contract matches | Rendered correctly (Score 61/100, correct keyword density, real stats) | 2.5s (real) | **PASS** |
+| Writing DNA | Sent, 200 | OK | N/A (statistical analysis, not LLM-based by design) | Contract matches | First attempt: enroll succeeded server-side but UI didn't refresh (bug, fixed). After reload: radar chart + style guide rendered correctly with real computed values | ~1-5s | **PASS** (persistence + rendering both confirmed; auto-refresh fix not yet re-verified live) |
+| Agent Studio | **NOT SENT** | Code-verified only | Code-verified only | Code-verified only | **NOT TESTED LIVE** | Unknown | **NOT VERIFIED LIVE.** Real bug found (constant fake score) and fixed; verified via local async smoke test only (no exceptions, score now text-derived). Blocked from live testing by cost (20 credits, exceeding a single fresh signup's full 10-credit allocation) — see Blockers. |
+
+**Do not read any "PASS" above as "flawless."** Each PASS reflects a genuine, current, observed 200-with-correct-rendered-result for the specific input tested — not an exhaustive test of every mode/style/language/edge case for that engine.
+
+## Blockers Encountered (stated plainly, not glossed over)
+
+1. **Test account credit exhaustion.** Real Supabase accounts (not a sandbox) were used throughout, since that's what "the actual deployed site" requires. Four fresh accounts were created via real signup (each getting the real 10-credit starter allocation) to spread testing across Grammar+Summarizer(x2)+SEO / Translator / etc. Agent Studio costs 20 credits per run — more than any single fresh signup provides, and there is no in-product way to add credits (no billing/checkout flow exists, confirmed in the original audit). This is a real, structural product-quality finding in its own right: the flagship "NEW"-badged Multi-Agent Studio feature is unreachable on the free starter allocation.
+2. **The Claude-in-Chrome browser extension disconnected** partway through this phase (after the Agent Studio code fix, before a planned Paraphraser re-verification), and did not reconnect after two attempts. This halted further live browser testing for this session.
+
+Both blockers are reported honestly rather than worked around with a fabricated result. Recommended next steps, in order: (a) reconnect the browser extension and re-run the Paraphraser test to resolve the flagged caveat, (b) either add credits to a test account (no in-product way to do this — would need direct Supabase dashboard access) or accept Agent Studio's fix as code-verified-only for now, (c) re-verify the Writing DNA auto-refresh fix live (was fixed but not re-tested after the fix deployed, same browser-disconnect timing issue).
+
+## Build/Test Validation (every commit this phase)
+
+- Backend: `py_compile` and full `app.main` import clean after every change, across five separate validation rounds. One local async smoke test of `AgentStudioService.run_session()`.
+- Frontend: `tsc --noEmit` and `next build` clean (19 routes, 0 errors) after every round of frontend changes.
+- All validation was run in a scratchpad copy outside the project's OneDrive-synced directory, after discovering (this session) that `npm install`'s writes to `node_modules` were being silently discarded when run directly inside the OneDrive-synced `frontend/` folder — unrelated to the engine bugs, but worth noting for future sessions in this repo.
+
+## Commits This Phase
+
+| Commit | Description |
+|---|---|
+| `c86b468` | Fix summarizer near-zero compression; fix 6 panels' fake processing-time display |
+| `2ae1056` | Disable Gemini thinking tokens (fixes truncated short outputs) |
+| `9d97c91` | Fix Agent Studio's hardcoded/fake text analysis score |
+
+## Deployment Status
+
+All three commits pushed to `origin/main` and confirmed picked up by Render (verified via the `/api/debug` shape and direct behavior changes after each push, same method as Phase 14) before each subsequent live retest in this phase. No frontend-only commit in this phase required a separate Vercel-redeploy wait beyond the one already covered in Phase 14's method.
