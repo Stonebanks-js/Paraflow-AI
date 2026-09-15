@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ const MATURITY_THRESHOLDS = { developing: 0, active: 5, mature: 15 };
 export function WritingDNAPanel() {
   const [samples, setSamples] = useState<string[]>(["", "", ""]);
   const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const enrollMutation = useWritingDNA();
   const updateMutation = useUpdateWritingDNA();
@@ -46,14 +48,18 @@ export function WritingDNAPanel() {
       } else {
         await enrollMutation.mutateAsync(validSamples);
       }
-      // Belt-and-suspenders alongside the mutation's own onSuccess cache
-      // invalidation: found live that invalidateQueries() alone did not
-      // reliably trigger a refetch here (the profile query had settled
-      // into an error state from its initial pre-enroll 404, and stayed
-      // there through invalidation). Explicitly refetching is a more
-      // direct, dependable way to make the new profile appear without a
-      // manual page reload.
-      await profileQuery.refetch();
+      // Neither the mutation's own onSuccess invalidateQueries() nor a
+      // plain profileQuery.refetch() reliably updated the UI here --
+      // reproduced live: the enroll succeeded (200, verified via direct
+      // fetch), but the page kept showing the pre-enroll form until a
+      // manual reload. Most likely cause: the query had settled into an
+      // error state from its initial pre-enroll 404, and refetch() on an
+      // already-observed query in that state can resolve without
+      // actually starting a new network request. resetQueries() is the
+      // more forceful operation -- it clears the cached error state
+      // outright and refetches any actively-observed query, which is
+      // exactly this one.
+      await queryClient.resetQueries({ queryKey: ["writing-dna", "profile"] });
       setSamples(["", "", ""]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Writing DNA update failed");
