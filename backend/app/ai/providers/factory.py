@@ -114,12 +114,16 @@ def generate_with_fallback(
     request: LLMRequest,
     *,
     timeout: Optional[float] = None,
-    max_retries: int = 0,
+    max_retries: int = 1,
 ) -> LLMResponse | LLMError:
     """Run the request against the active provider, then fallback chain on failure.
 
     Returns the first LLMResponse that comes back, or the last LLMError.
-    Never raises. Each provider is given a single shot with the timeout.
+    Never raises. Each provider attempt gets up to `max_retries` extra
+    tries when the failure is marked retriable (timeouts, transient
+    provider errors) -- e.g. under momentary rate limiting or a slow
+    response, a single hiccup no longer fails the whole request. Non-
+    retriable failures (bad API key, etc.) are not retried.
 
     With Gemini as the only provider, the fallback chain is empty and
     we go straight to Gemini. If Gemini fails, the engine's local
@@ -144,17 +148,28 @@ def generate_with_fallback(
             logger.debug("provider.skipped", provider=provider_name, reason="client_init_failed")
             continue
 
-        result = _run_with_timeout(provider, request, timeout=timeout)
-        if isinstance(result, LLMResponse):
-            if provider_name != settings.ACTIVE_PROVIDER:
-                logger.info(
-                    "fallback.used",
-                    active=settings.ACTIVE_PROVIDER,
-                    used=provider_name,
-                    model=result.model,
-                )
-            return result
-        last_error = result
+        for attempt in range(1 + max(0, max_retries)):
+            result = _run_with_timeout(provider, request, timeout=timeout)
+            if isinstance(result, LLMResponse):
+                if provider_name != settings.ACTIVE_PROVIDER:
+                    logger.info(
+                        "fallback.used",
+                        active=settings.ACTIVE_PROVIDER,
+                        used=provider_name,
+                        model=result.model,
+                    )
+                if attempt > 0:
+                    logger.info("llm.retry.succeeded", provider=provider_name, attempt=attempt)
+                return result
+            last_error = result
+            if not result.retriable or attempt >= max_retries:
+                break
+            logger.warning(
+                "llm.retry",
+                provider=provider_name,
+                attempt=attempt + 1,
+                code=result.code,
+            )
 
     if last_error is None:
         return LLMError(

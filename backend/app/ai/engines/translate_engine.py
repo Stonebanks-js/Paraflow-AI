@@ -57,17 +57,19 @@ class TranslateEngine(BaseAIEngine):
                 "provider": result.get("provider"),
             }
 
-        # All providers failed - use local placeholder translation
+        # Unlike Grammar/Humanizer, there is no honest local fallback for
+        # translation -- returning the original text is not "a degraded
+        # translation," it is no translation at all. Previously this
+        # returned status:"success" with the untranslated input (prefixed
+        # with a bracketed note), which (a) charged the user credits for a
+        # request that produced no actual translation, since _run_tool()
+        # only skips billing on a real failure, and (b) reproduced live as
+        # exactly the "translator just returns the same text" symptom.
+        # Surface the real failure instead.
         target_name = LANGUAGE_CODES.get(target_lang, target_lang.upper())
-        translated = f"[{target_name} translation unavailable - AI service is slow. Original text follows:] {input_text}"
         return {
-            "status": "success",
-            "translated_text": translated,
-            "source_lang": source_lang,
-            "target_lang": target_lang,
-            "word_count_diff": len(translated.split()) - len(input_text.split()),
-            "model": "local-fallback",
-            "provider": "local",
+            "status": "error",
+            "error": f"Translation to {target_name} failed: {result.get('error', 'the AI service did not respond in time')}. Please try again.",
         }
 
     def _build_system_prompt(self, source_lang: str, target_lang: str, preserve_tone: bool) -> str:
