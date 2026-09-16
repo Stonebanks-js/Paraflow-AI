@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
-import { Button, Progress, Badge } from "@/components/ui";
+import { Button, Badge } from "@/components/ui";
 import { useUserStore } from "@/stores";
 import { useCredits } from "@/hooks/use-api";
 import { getSession, mapSupabaseUserToAppUser, isSupabaseConfigured } from "@/lib/auth-service";
@@ -32,9 +32,11 @@ import {
   BarChart3,
   Brain,
   Lightbulb,
-  Star,
   ChevronRight,
   Play,
+  Sunrise,
+  Sun,
+  Moon,
 } from "lucide-react";
 
 const tools = [
@@ -74,10 +76,10 @@ export default function DashboardPage() {
   const creditsQuery = useCredits();
   const [authReady, setAuthReady] = useState(false);
   const [greeting, setGreeting] = useState("");
+  const [GreetingIcon, setGreetingIcon] = useState<typeof Sunrise>(() => Sunrise);
   const [stats, setStats] = useState({ documents: 0, wordsProcessed: 0, timeSaved: 0 });
   const [healthScore, setHealthScore] = useState(0);
   const [dimensions, setDimensions] = useState({ grammar: 0, clarity: 0, seo: 0 });
-  const [apiError, setApiError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -113,9 +115,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const hour = new Date().getHours();
-    if (hour < 12) setGreeting("Good morning");
-    else if (hour < 18) setGreeting("Good afternoon");
-    else setGreeting("Good evening");
+    if (hour < 12) {
+      setGreeting("Good morning");
+      setGreetingIcon(() => Sunrise);
+    } else if (hour < 18) {
+      setGreeting("Good afternoon");
+      setGreetingIcon(() => Sun);
+    } else {
+      setGreeting("Good evening");
+      setGreetingIcon(() => Moon);
+    }
   }, []);
 
   useEffect(() => {
@@ -162,6 +171,7 @@ export default function DashboardPage() {
 
   const creditsBalance = creditsQuery.data?.balance ?? 0;
   const planTier = creditsQuery.data?.tier ?? "Free";
+  const creditsCircumference = 2 * Math.PI * 40;
 
   if (!authReady) {
     return (
@@ -180,13 +190,18 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
           className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
         >
-          <div>
-            <h1 className="text-3xl font-bold mb-1">
-              {greeting}, <span className="gradient-text">{user?.full_name || "Writer"}</span>
-            </h1>
-            <p className="text-muted-foreground">
-              Your AI-powered writing command center
-            </p>
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <GreetingIcon className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold mb-1">
+                {greeting}, <span className="gradient-text">{user?.full_name || "Writer"}</span>
+              </h1>
+              <p className="text-muted-foreground">
+                Your AI-powered writing command center
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <Button variant="outline" size="sm" className="gap-2">
@@ -202,89 +217,130 @@ export default function DashboardPage() {
           </div>
         </motion.div>
 
-        {/* Stats Grid */}
+        {/* Hero row: Credits + Writing Health */}
         <motion.div
           variants={container}
           initial="hidden"
           animate="show"
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
+          className="grid grid-cols-1 lg:grid-cols-3 gap-4"
         >
-          {/* Credits Card */}
-          <motion.div variants={item}>
-            <Card className="overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Credits Balance</p>
-                    <p className="text-3xl font-bold">{creditsBalance}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {planTier === "Free" ? "100 free credits" : "Unlimited pro credits"}
-                    </p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Sparkles className="w-6 h-6 text-primary" />
+          <motion.div variants={item} className="lg:col-span-2">
+            <Card className="h-full overflow-hidden bg-gradient-to-br from-primary/10 via-purple-500/5 to-transparent border-primary/20">
+              <CardContent className="p-6 h-full flex flex-col sm:flex-row items-center gap-6">
+                <div className="relative w-24 h-24 shrink-0">
+                  <svg className="w-24 h-24 -rotate-90">
+                    <circle cx="48" cy="48" r="40" fill="none" stroke="currentColor" strokeWidth="8" className="text-muted/30" />
+                    <motion.circle
+                      cx="48" cy="48" r="40" fill="none"
+                      stroke="hsl(var(--primary))" strokeWidth="8" strokeLinecap="round"
+                      strokeDasharray={creditsCircumference}
+                      initial={{ strokeDashoffset: creditsCircumference }}
+                      animate={{ strokeDashoffset: creditsCircumference * (1 - Math.min(creditsBalance, 100) / 100) }}
+                      transition={{ duration: 1, delay: 0.3 }}
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Sparkles className="w-7 h-7 text-primary" />
                   </div>
                 </div>
-                <Progress value={(creditsBalance / 100) * 100} className="mt-4 h-2" />
+                <div className="flex-1 text-center sm:text-left">
+                  <p className="text-sm text-muted-foreground mb-1">Credits Balance</p>
+                  <p className="text-4xl font-bold mb-1">{creditsBalance}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {planTier === "Free" ? "on the Free plan — 100 credits/month" : `on the ${planTier} plan`}
+                  </p>
+                </div>
+                <Link href="/billing">
+                  <Button variant="outline" size="sm" className="gap-2 shrink-0">
+                    Manage <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </Link>
               </CardContent>
             </Card>
           </motion.div>
 
-          {/* Documents Created */}
           <motion.div variants={item}>
-            <Card className="overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Documents Created</p>
-                    <p className="text-3xl font-bold">{stats.documents}</p>
-                    <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-                      <TrendingUp className="w-3 h-3" /> {stats.documents} this week
-                    </p>
+            <Card className="h-full">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Target className="w-5 h-5 text-primary" />
+                  Writing Health Score
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  <div className="relative w-20 h-20 shrink-0">
+                    <svg className="w-20 h-20 -rotate-90">
+                      <circle cx="40" cy="40" r="32" fill="none" stroke="currentColor" strokeWidth="6" className="text-muted/30" />
+                      <motion.circle
+                        cx="40" cy="40" r="32" fill="none"
+                        stroke="url(#dashboard-gradient)" strokeWidth="6" strokeLinecap="round"
+                        strokeDasharray={2 * Math.PI * 32}
+                        initial={{ strokeDashoffset: 2 * Math.PI * 32 }}
+                        animate={{ strokeDashoffset: 2 * Math.PI * 32 * (1 - (healthScore || 0) / 100) }}
+                        transition={{ duration: 1, delay: 0.5 }}
+                      />
+                      <defs>
+                        <linearGradient id="dashboard-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor="hsl(var(--primary))" />
+                          <stop offset="100%" stopColor="hsl(var(--chart-3))" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-xl font-bold">{healthScore || 0}</span>
+                    </div>
                   </div>
-                  <div className="w-12 h-12 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                    <FileText className="w-6 h-6 text-blue-400" />
+                  <div className="flex-1 space-y-1.5 text-xs">
+                    <div className="flex justify-between"><span className="text-muted-foreground">Grammar</span><span className="font-medium">{dimensions.grammar || 0}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">Clarity</span><span className="font-medium">{dimensions.clarity || 0}</span></div>
+                    <div className="flex justify-between"><span className="text-muted-foreground">SEO</span><span className="font-medium">{dimensions.seo || 0}</span></div>
                   </div>
                 </div>
               </CardContent>
             </Card>
           </motion.div>
+        </motion.div>
 
-          {/* Words Processed */}
-          <motion.div variants={item}>
-            <Card className="overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Words Processed</p>
-                    <p className="text-3xl font-bold">{stats.wordsProcessed.toLocaleString()}</p>
-                    <p className="text-xs text-muted-foreground mt-1">Total word count</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
-                    <Brain className="w-6 h-6 text-purple-400" />
-                  </div>
+        {/* Compact stats strip */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <Card>
+            <CardContent className="p-4 grid grid-cols-3 divide-x divide-border/50">
+              <div className="flex items-center gap-3 px-2 sm:px-4">
+                <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+                  <FileText className="w-4 h-4 text-blue-400" />
                 </div>
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          {/* Time Saved */}
-          <motion.div variants={item}>
-            <Card className="overflow-hidden">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground mb-1">Time Saved</p>
-                    <p className="text-3xl font-bold">{stats.timeSaved}m</p>
-                    <p className="text-xs text-muted-foreground mt-1">Estimated minutes</p>
-                  </div>
-                  <div className="w-12 h-12 rounded-xl bg-emerald-500/10 flex items-center justify-center">
-                    <Clock className="w-6 h-6 text-emerald-400" />
-                  </div>
+                <div className="min-w-0">
+                  <p className="text-lg font-bold leading-none">{stats.documents}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1 truncate">
+                    <TrendingUp className="w-3 h-3 shrink-0" /> Documents
+                  </p>
                 </div>
-              </CardContent>
-            </Card>
-          </motion.div>
+              </div>
+              <div className="flex items-center gap-3 px-2 sm:px-4">
+                <div className="w-9 h-9 rounded-lg bg-purple-500/10 flex items-center justify-center shrink-0">
+                  <Brain className="w-4 h-4 text-purple-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-lg font-bold leading-none">{stats.wordsProcessed.toLocaleString()}</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 truncate">Words processed</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 px-2 sm:px-4">
+                <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center shrink-0">
+                  <Clock className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-lg font-bold leading-none">{stats.timeSaved}m</p>
+                  <p className="text-[11px] text-muted-foreground mt-1 truncate">Time saved</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
 
         {/* Main Content Grid */}
@@ -311,7 +367,7 @@ export default function DashboardPage() {
                     transition={{ delay: 0.1 * i }}
                   >
                     <Link href={`/tools/${tool.id}`}>
-                      <Card hoverable className="h-full overflow-hidden relative group">
+                      <Card hoverable className="h-full overflow-hidden relative group border-t-2 border-t-transparent hover:border-t-primary/60">
                         <CardContent className="p-4">
                           <div className={cn("absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity", tool.gradient)} />
                           <div className="relative z-10">
@@ -418,83 +474,11 @@ export default function DashboardPage() {
               </div>
             </motion.div>
 
-            {/* Writing Score */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.3 }}
-            >
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Target className="w-5 h-5 text-primary" />
-                    Writing Health Score
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-center py-6">
-                    <div className="relative">
-                      <svg className="w-32 h-32 -rotate-90">
-                        <circle
-                          cx="64"
-                          cy="64"
-                          r="56"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="8"
-                          className="text-muted/30"
-                        />
-                        <motion.circle
-                          cx="64"
-                          cy="64"
-                          r="56"
-                          fill="none"
-                          stroke="url(#gradient)"
-                          strokeWidth="8"
-                          strokeLinecap="round"
-                          strokeDasharray={351.86}
-                          initial={{ strokeDashoffset: 351.86 }}
-                          animate={{ strokeDashoffset: 351.86 * (1 - (healthScore || 0) / 100) }}
-                          transition={{ duration: 1, delay: 0.5 }}
-                        />
-                        <defs>
-                          <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stopColor="hsl(var(--primary))" />
-                            <stop offset="100%" stopColor="hsl(var(--chart-3))" />
-                          </linearGradient>
-                        </defs>
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        <span className="text-3xl font-bold">{healthScore || 0}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {healthScore >= 80 ? "Excellent" : healthScore >= 60 ? "Good" : healthScore > 0 ? "Fair" : "Start writing"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 mt-4">
-                    <div className="text-center">
-                      <p className="text-lg font-semibold">{dimensions.grammar || 0}</p>
-                      <p className="text-xs text-muted-foreground">Grammar</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-lg font-semibold">{dimensions.clarity || 0}</p>
-                      <p className="text-xs text-muted-foreground">Clarity</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-lg font-semibold">{dimensions.seo || 0}</p>
-                      <p className="text-xs text-muted-foreground">SEO</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </motion.div>
-
             {/* Tips */}
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.4 }}
+              transition={{ delay: 0.3 }}
             >
               <Card className="bg-gradient-to-br from-primary/5 to-purple-500/5 border-primary/10">
                 <CardContent className="p-4">
