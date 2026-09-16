@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
+import { motion, useScroll, useTransform, useMotionValue, useSpring, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Button, Badge, Card, CardContent } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import {
@@ -20,58 +20,100 @@ import {
   Check,
   Star,
   Zap,
-  Brain,
-  Clock,
-  Target,
   Menu,
   X,
   Play,
   Quote,
   ChevronDown,
+  PenLine,
+  Wand2,
+  SendHorizontal,
 } from "lucide-react";
 
-const features = [
+const demoTransforms = [
+  {
+    label: "Paraphraser",
+    before: "The company's quarterly earnings exceeded analyst expectations.",
+    after: "Analysts were caught off guard as the company's quarterly earnings soared past projections.",
+  },
+  {
+    label: "Humanizer",
+    before: "Furthermore, it is imperative to note that efficiency gains were substantial.",
+    after: "Honestly, the efficiency gains were huge — and that's worth pointing out.",
+  },
+  {
+    label: "Grammar",
+    before: "She dont know where her keys is at.",
+    after: "She doesn't know where her keys are.",
+  },
+];
+
+const steps = [
+  {
+    icon: PenLine,
+    title: "Paste or write your text",
+    description: "Drop in a draft, an email, an essay — anything. No formatting required.",
+  },
+  {
+    icon: Wand2,
+    title: "Pick an engine, hit run",
+    description: "Paraphrase, humanize, check grammar, translate, or run all 8 in Agent Studio.",
+  },
+  {
+    icon: SendHorizontal,
+    title: "Get a result you can trust",
+    description: "Real scores, real corrections, real output — never a placeholder or a guess.",
+  },
+];
+
+const bentoFeatures = [
   {
     icon: Feather,
     title: "Intelligent Paraphrasing",
-    description: "Transform your writing with 8 unique modes. From formal to creative, get alternatives that match your voice.",
+    description: "8 distinct modes, from formal to creative, that preserve your meaning while finding a new voice.",
     color: "text-blue-400",
     bg: "bg-blue-400/10",
+    span: "lg:col-span-2",
   },
   {
-    icon: SparklesIcon,
-    title: "AI Humanizer",
-    description: "Make AI-generated text sound authentically human. Bypass detection while maintaining quality.",
-    color: "text-purple-400",
-    bg: "bg-purple-400/10",
+    icon: Dna,
+    title: "Writing DNA",
+    description: "Learns your personal style fingerprint and applies it across every engine.",
+    color: "text-emerald-400",
+    bg: "bg-emerald-400/10",
+    span: "",
   },
   {
     icon: ShieldCheck,
     title: "AI Detector",
-    description: "Analyze text for AI patterns. Get probability scores and highlighted regions.",
+    description: "Sentence-level probability scoring with highlighted regions, not a single opaque number.",
     color: "text-green-400",
     bg: "bg-green-400/10",
+    span: "",
+  },
+  {
+    icon: FlaskConical,
+    title: "Multi-Agent Studio",
+    description: "Supervisor-coordinated agents iterate on your document together until it hits your target score.",
+    color: "text-indigo-400",
+    bg: "bg-indigo-400/10",
+    span: "lg:col-span-2",
   },
   {
     icon: SpellCheck,
     title: "Grammar Excellence",
-    description: "Comprehensive checking with real-time corrections. Grammar, clarity, engagement, and delivery scores.",
+    description: "Real corrections powered by Gemini, not a fixed typo dictionary.",
     color: "text-orange-400",
     bg: "bg-orange-400/10",
-  },
-  {
-    icon: FileText,
-    title: "Smart Summarizer",
-    description: "Extract key insights from any content. 6 summary types from concise to executive.",
-    color: "text-cyan-400",
-    bg: "bg-cyan-400/10",
+    span: "",
   },
   {
     icon: Languages,
     title: "Global Translator",
-    description: "Translate across 30 languages with 5 different styles. Maintain context and tone.",
+    description: "30+ languages, 5 tone presets, context preserved.",
     color: "text-pink-400",
     bg: "bg-pink-400/10",
+    span: "",
   },
 ];
 
@@ -176,13 +218,159 @@ const faqs = [
   },
 ];
 
+function HeroDemoPanel() {
+  const reduceMotion = useReducedMotion();
+  const [activeDemo, setActiveDemo] = useState(0);
+  const [showAfter, setShowAfter] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  const rotateX = useSpring(useTransform(mouseY, [-0.5, 0.5], [8, -8]), { stiffness: 150, damping: 20 });
+  const rotateY = useSpring(useTransform(mouseX, [-0.5, 0.5], [-8, 8]), { stiffness: 150, damping: 20 });
+
+  useEffect(() => {
+    setShowAfter(false);
+    const revealTimer = setTimeout(() => setShowAfter(true), 1100);
+    const nextTimer = setTimeout(() => setActiveDemo((prev) => (prev + 1) % demoTransforms.length), 3600);
+    return () => {
+      clearTimeout(revealTimer);
+      clearTimeout(nextTimer);
+    };
+  }, [activeDemo]);
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (reduceMotion || !cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    mouseX.set((e.clientX - rect.left) / rect.width - 0.5);
+    mouseY.set((e.clientY - rect.top) / rect.height - 0.5);
+  };
+
+  const handleMouseLeave = () => {
+    mouseX.set(0);
+    mouseY.set(0);
+  };
+
+  const demo = demoTransforms[activeDemo];
+
+  return (
+    <motion.div
+      ref={cardRef}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      style={{
+        rotateX: reduceMotion ? 0 : rotateX,
+        rotateY: reduceMotion ? 0 : rotateY,
+        transformPerspective: 1200,
+      }}
+      className="relative mx-auto w-full max-w-xl"
+    >
+      <div className="glass rounded-2xl border border-border/50 shadow-2xl shadow-primary/10 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50 bg-card/60">
+          <div className="flex gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-red-400/70" />
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-400/70" />
+            <span className="w-2.5 h-2.5 rounded-full bg-green-400/70" />
+          </div>
+          <div className="flex-1 flex justify-center">
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={demo.label}
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                className="text-xs font-medium text-muted-foreground"
+              >
+                {demo.label}
+              </motion.span>
+            </AnimatePresence>
+          </div>
+          <Sparkles className="w-3.5 h-3.5 text-primary" />
+        </div>
+
+        <div className="p-6 space-y-4 min-h-[220px]">
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-2">Before</p>
+            <AnimatePresence mode="wait">
+              <motion.p
+                key={"before-" + activeDemo}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-sm text-muted-foreground leading-relaxed"
+              >
+                {demo.before}
+              </motion.p>
+            </AnimatePresence>
+          </div>
+
+          <div className="flex items-center gap-2 text-primary">
+            <div className="h-px flex-1 bg-gradient-to-r from-primary/40 to-transparent" />
+            <Zap className="w-3.5 h-3.5" />
+            <div className="h-px flex-1 bg-gradient-to-l from-primary/40 to-transparent" />
+          </div>
+
+          <div>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-primary mb-2">After</p>
+            <div className="min-h-[3.5rem]">
+              <AnimatePresence mode="wait">
+                {showAfter && (
+                  <motion.p
+                    key={"after-" + activeDemo}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="text-sm font-medium leading-relaxed"
+                  >
+                    {demo.after}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center gap-1.5 pb-4">
+          {demoTransforms.map((_, i) => (
+            <span
+              key={i}
+              className={cn(
+                "h-1.5 rounded-full transition-all",
+                i === activeDemo ? "w-6 bg-primary" : "w-1.5 bg-muted"
+              )}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Floating badge accents for depth */}
+      <motion.div
+        animate={reduceMotion ? undefined : { y: [0, -8, 0] }}
+        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute -top-4 -right-4 glass rounded-xl px-3 py-2 shadow-lg border border-border/50 hidden sm:flex items-center gap-2"
+      >
+        <ShieldCheck className="w-4 h-4 text-green-400" />
+        <span className="text-xs font-medium">98% Human Score</span>
+      </motion.div>
+      <motion.div
+        animate={reduceMotion ? undefined : { y: [0, 8, 0] }}
+        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
+        className="absolute -bottom-4 -left-4 glass rounded-xl px-3 py-2 shadow-lg border border-border/50 hidden sm:flex items-center gap-2"
+      >
+        <Dna className="w-4 h-4 text-emerald-400" />
+        <span className="text-xs font-medium">Style matched</span>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export default function HomePage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [activeTestimonial, setActiveTestimonial] = useState(0);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const { scrollY } = useScroll();
   const heroOpacity = useTransform(scrollY, [0, 400], [1, 0]);
-  const heroScale = useTransform(scrollY, [0, 400], [1, 0.95]);
+  const heroScale = useTransform(scrollY, [0, 400], [1, 0.97]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -206,6 +394,9 @@ export default function HomePage() {
             </Link>
 
             <div className="hidden lg:flex items-center gap-8">
+              <Link href="#how-it-works" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+                How it Works
+              </Link>
               <Link href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
                 Features
               </Link>
@@ -251,6 +442,7 @@ export default function HomePage() {
               className="lg:hidden border-t border-border/50 bg-background/95 backdrop-blur-xl"
             >
               <div className="container mx-auto px-4 py-4 space-y-4">
+                <Link href="#how-it-works" className="block py-2 text-sm font-medium">How it Works</Link>
                 <Link href="#features" className="block py-2 text-sm font-medium">Features</Link>
                 <Link href="#tools" className="block py-2 text-sm font-medium">Tools</Link>
                 <Link href="#pricing" className="block py-2 text-sm font-medium">Pricing</Link>
@@ -270,110 +462,106 @@ export default function HomePage() {
       </header>
 
       {/* Hero Section */}
-      <section className="relative pt-32 pb-20 lg:pt-40 lg:pb-32 overflow-hidden">
+      <section className="relative pt-32 pb-20 lg:pt-40 lg:pb-28 overflow-hidden">
         {/* Background Effects */}
         <div className="absolute inset-0">
           <motion.div
-            animate={{
-              scale: [1, 1.2, 1],
-              rotate: [0, 5, 0],
-            }}
-            transition={{
-              duration: 20,
-              repeat: Infinity,
-              ease: "linear",
-            }}
+            animate={{ scale: [1, 1.2, 1], rotate: [0, 5, 0] }}
+            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
             className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/20 rounded-full blur-[128px]"
           />
           <motion.div
-            animate={{
-              scale: [1.2, 1, 1.2],
-              rotate: [0, -5, 0],
-            }}
-            transition={{
-              duration: 25,
-              repeat: Infinity,
-              ease: "linear",
-            }}
+            animate={{ scale: [1.2, 1, 1.2], rotate: [0, -5, 0] }}
+            transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
             className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/20 rounded-full blur-[128px]"
           />
         </div>
 
         <motion.div
           style={{ opacity: heroOpacity, scale: heroScale }}
-          className="relative container mx-auto px-4 lg:px-8 text-center"
+          className="relative container mx-auto px-4 lg:px-8"
         >
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-          >
-            <Badge variant="gradient" className="mb-6 px-4 py-1.5 text-sm">
-              <Sparkles className="w-4 h-4 mr-2" />
-              Introducing Writing DNA — Your Personal Style Fingerprint
-            </Badge>
-          </motion.div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-8 items-center">
+            <div className="text-center lg:text-left">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8 }}
+              >
+                <Badge variant="gradient" className="mb-6 px-4 py-1.5 text-sm">
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Introducing Writing DNA
+                </Badge>
+              </motion.div>
 
-          <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.1 }}
-            className="text-5xl lg:text-7xl font-bold mb-6 leading-tight"
-          >
-            From First Draft to{" "}
-            <span className="gradient-text">Final Form</span>
-            <br />
-            — Intelligently.
-          </motion.h1>
+              <motion.h1
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.1 }}
+                className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-tight"
+              >
+                From First Draft to{" "}
+                <span className="gradient-text">Final Form</span>
+                {" "}— Intelligently.
+              </motion.h1>
 
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
-            className="text-xl text-muted-foreground mb-10 max-w-2xl mx-auto"
-          >
-            The unified Writing Intelligence Platform that paraphrases, humanizes,
-            detects AI, optimizes SEO, and learns your unique style.
-          </motion.p>
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.2 }}
+                className="text-lg lg:text-xl text-muted-foreground mb-10 max-w-xl mx-auto lg:mx-0"
+              >
+                The unified Writing Intelligence Platform that paraphrases, humanizes,
+                detects AI, optimizes SEO, and learns your unique style.
+              </motion.p>
 
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.3 }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4"
-          >
-            <Link href="/register">
-              <Button size="xl" className="gap-2 w-full sm:w-auto">
-                <Zap className="w-5 h-5" />
-                Start Free — 100 Credits
-              </Button>
-            </Link>
-            <Link href="/tools/paraphraser">
-              <Button size="xl" variant="outline" className="gap-2 w-full sm:w-auto">
-                <Play className="w-5 h-5" />
-                Try Demo
-              </Button>
-            </Link>
-          </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.3 }}
+                className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 mb-14"
+              >
+                <Link href="/register">
+                  <Button size="xl" className="gap-2 w-full sm:w-auto">
+                    <Zap className="w-5 h-5" />
+                    Start Free — 100 Credits
+                  </Button>
+                </Link>
+                <Link href="/tools/paraphraser">
+                  <Button size="xl" variant="outline" className="gap-2 w-full sm:w-auto">
+                    <Play className="w-5 h-5" />
+                    Try Demo
+                  </Button>
+                </Link>
+              </motion.div>
 
-          {/* Stats */}
-          <motion.div
-            initial={{ opacity: 0, y: 40 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.5 }}
-            className="mt-16 grid grid-cols-3 gap-8 max-w-xl mx-auto"
-          >
-            {[
-              { value: "50K+", label: "Active Users" },
-              { value: "10M+", label: "Words Processed" },
-              { value: "4.9", label: "User Rating" },
-            ].map((stat, i) => (
-              <div key={i} className="text-center">
-                <p className="text-2xl lg:text-3xl font-bold">{stat.value}</p>
-                <p className="text-sm text-muted-foreground">{stat.label}</p>
-              </div>
-            ))}
-          </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.8, delay: 0.4 }}
+                className="flex items-center justify-center lg:justify-start gap-8"
+              >
+                {[
+                  { value: "50K+", label: "Active Users" },
+                  { value: "10M+", label: "Words Processed" },
+                  { value: "4.9", label: "User Rating" },
+                ].map((stat, i) => (
+                  <div key={i} className="text-center lg:text-left">
+                    <p className="text-xl lg:text-2xl font-bold">{stat.value}</p>
+                    <p className="text-xs lg:text-sm text-muted-foreground">{stat.label}</p>
+                  </div>
+                ))}
+              </motion.div>
+            </div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.8, delay: 0.3 }}
+            >
+              <HeroDemoPanel />
+            </motion.div>
+          </div>
         </motion.div>
 
         {/* Scroll Indicator */}
@@ -386,7 +574,42 @@ export default function HomePage() {
         </motion.div>
       </section>
 
-      {/* Features Section */}
+      {/* How it Works */}
+      <section id="how-it-works" className="py-16 lg:py-24 border-y border-border/50 bg-muted/20">
+        <div className="container mx-auto px-4 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="text-center mb-12"
+          >
+            <Badge variant="secondary" className="mb-4">How it Works</Badge>
+            <h2 className="text-3xl lg:text-4xl font-bold">Three steps to better writing</h2>
+          </motion.div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-10 max-w-5xl mx-auto relative">
+            <div className="hidden md:block absolute top-8 left-[16.5%] right-[16.5%] h-px bg-gradient-to-r from-primary/40 via-primary/20 to-primary/40" />
+            {steps.map((step, i) => (
+              <motion.div
+                key={step.title}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ delay: i * 0.15 }}
+                className="relative text-center"
+              >
+                <div className="w-16 h-16 rounded-2xl bg-background border border-primary/30 shadow-lg shadow-primary/10 mx-auto mb-5 flex items-center justify-center relative z-10">
+                  <step.icon className="w-7 h-7 text-primary" />
+                </div>
+                <h3 className="font-semibold text-lg mb-2">{step.title}</h3>
+                <p className="text-sm text-muted-foreground max-w-xs mx-auto">{step.description}</p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Features — bento grid */}
       <section id="features" className="py-20 lg:py-32">
         <div className="container mx-auto px-4 lg:px-8">
           <motion.div
@@ -405,17 +628,18 @@ export default function HomePage() {
             </p>
           </motion.div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((feature, i) => (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 auto-rows-[1fr]">
+            {bentoFeatures.map((feature, i) => (
               <motion.div
                 key={feature.title}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
-                transition={{ delay: i * 0.1 }}
+                transition={{ delay: i * 0.08 }}
+                className={feature.span}
               >
                 <Card hoverable className="h-full">
-                  <CardContent className="p-6">
+                  <CardContent className="p-6 h-full flex flex-col">
                     <div className={cn("w-14 h-14 rounded-2xl mb-4 flex items-center justify-center", feature.bg)}>
                       <feature.icon className={cn("w-7 h-7", feature.color)} />
                     </div>
@@ -486,7 +710,7 @@ export default function HomePage() {
                   <div className="text-center lg:text-left flex-1">
                     <h3 className="text-2xl font-bold mb-2">Multi-Agent Studio</h3>
                     <p className="text-muted-foreground mb-4">
-                      Supervisor-coordinated AI agents (Grammar, SEO, Humanizer, Tone) collaborate on your document 
+                      Supervisor-coordinated AI agents (Grammar, SEO, Humanizer, Tone) collaborate on your document
                       until it reaches target quality. Multiple agents, one unified result.
                     </p>
                     <Link href="/tools/agent-studio">
@@ -594,6 +818,7 @@ export default function HomePage() {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
                 transition={{ delay: i * 0.1 }}
+                whileHover={{ y: -4 }}
               >
                 <Card className={cn("h-full relative", plan.popular && "border-primary shadow-lg shadow-primary/10")}>
                   {plan.popular && (
@@ -616,9 +841,11 @@ export default function HomePage() {
                         </li>
                       ))}
                     </ul>
-                    <Button className="w-full" variant={plan.popular ? "default" : "outline"}>
-                      {plan.cta}
-                    </Button>
+                    <Link href="/register">
+                      <Button className="w-full" variant={plan.popular ? "default" : "outline"}>
+                        {plan.cta}
+                      </Button>
+                    </Link>
                   </CardContent>
                 </Card>
               </motion.div>
@@ -738,7 +965,7 @@ export default function HomePage() {
               <Link href="/contact" className="hover:text-foreground transition-colors">Contact</Link>
             </div>
             <p className="text-sm text-muted-foreground">
-              © 2024 Paraflow AI. All rights reserved.
+              © 2026 Paraflow AI. All rights reserved.
             </p>
           </div>
         </div>
