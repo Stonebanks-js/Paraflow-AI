@@ -241,6 +241,7 @@ async def grammar_check(
                 "status": "completed",
                 "corrected_text": result["corrected_text"],
                 "issues": result.get("issues", []),
+                "checked_by": result.get("checked_by"),
             }
         return result
 

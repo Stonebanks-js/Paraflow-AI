@@ -57,7 +57,19 @@ class GrammarEngine(BaseAIEngine):
             temperature=0.3,
             max_tokens=1024,
         )
-        if result.get("status") == "success" and result.get("output"):
+        # Unlike Paraphraser/Humanizer/Translator, there IS an honest
+        # partial local check here when Gemini fails: the rule-based scan
+        # genuinely looks for real (if narrow) issues, and _apply_rule_fixes
+        # genuinely fixes whatever it found -- neither is fabricated. The
+        # real risk is narrower: if Gemini fails AND the rule-based scan
+        # (which only catches ~8 known misspellings) finds nothing, the
+        # response looks identical to a full Gemini-verified "no issues
+        # found" even though only the narrow local check actually ran, so
+        # a genuine grammar error Gemini would have caught goes silently
+        # unreported. checked_by makes that distinction visible to callers
+        # instead of presenting both cases identically.
+        gemini_reached = result.get("status") == "success" and bool(result.get("output"))
+        if gemini_reached:
             corrected_text = result["output"]
         elif issues:
             corrected_text = self._apply_rule_fixes(input_text, issues)
@@ -86,6 +98,7 @@ class GrammarEngine(BaseAIEngine):
             "corrected_text": corrected_text,
             "issues": issue_dicts,
             "language": language,
+            "checked_by": "gemini" if gemini_reached else "rule_based_only",
         }
 
     def _stage1_rule_based(self, text: str) -> list:

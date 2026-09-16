@@ -70,6 +70,7 @@ export interface GrammarIssue {
 export interface GrammarResponse extends ToolJob {
   corrected_text?: string;
   issues: GrammarIssue[];
+  checked_by?: 'gemini' | 'rule_based_only';
 }
 
 export interface HumanizeResponse extends ToolJob {

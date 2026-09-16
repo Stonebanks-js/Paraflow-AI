@@ -71,6 +71,7 @@ class GrammarResponse(BaseModel):
     corrected_text: Optional[str] = None
     issues: list[GrammarIssue] = []
     credits_used: Optional[int] = None
+    checked_by: Optional[str] = None
 
 
 class SummarizeRequest(BaseModel):

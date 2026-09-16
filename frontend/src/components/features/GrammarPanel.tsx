@@ -264,6 +264,25 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
       transition={{ duration: 0.4, ease: "easeOut" }}
       className="space-y-6"
     >
+      {/* When Gemini couldn't be reached, only the narrow ~8-word
+          rule-based scan ran -- honest about that instead of presenting
+          it identically to a full AI-backed check, since "no issues
+          found" from the rule-based path alone doesn't mean the text is
+          actually clean. */}
+      {grammarMutation.data?.checked_by === "rule_based_only" && (
+        <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="bg-yellow-500/10 border-yellow-500/30">
+            <CardContent className="p-3 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0" />
+              <p className="text-sm">
+                The AI grammar service was unreachable, so only a basic rule-based spelling check ran.
+                This result may miss real grammar issues -- try again in a moment for a full check.
+              </p>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
       {/* Results Overview Card */}
       {outputText && (
         <Card className="bg-gradient-to-r from-orange-500/5 to-amber-500/5 border-orange-500/20">
