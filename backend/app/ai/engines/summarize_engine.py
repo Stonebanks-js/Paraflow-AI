@@ -97,7 +97,19 @@ class SummarizeEngine(BaseAIEngine):
             "bullet_points": f"Extract the key points as bullet points (use '-' prefix), suitable for quick scanning, totaling roughly {target_length} words across all bullets. Return ONLY the bullet points with no explanations, no labels, no markdown.",
             "executive": f"Provide an executive summary in approximately {target_length} words, focusing on actionable insights. Return ONLY the summary text with no explanations, no labels, no markdown.",
         }
-        return prompts.get(style, prompts["concise"])
+        base = prompts.get(style, prompts["concise"])
+        # No guardrail against hallucination existed here at all -- for a
+        # summarizer specifically (often used to make decisions from,
+        # unlike a paraphrase a reader can compare against the original)
+        # fabricating a number or claim that isn't in the source is a
+        # serious, well-documented LLM failure mode worth stating
+        # explicitly rather than assuming the model won't do it.
+        return base + (
+            " CRITICAL: Only include information that is actually present in the source text. "
+            "Never add facts, numbers, or claims that are not explicitly stated in the original. "
+            "If the source is ambiguous or lacks detail, keep the summary equally general rather "
+            "than inventing specifics."
+        )
 
     def _extract_key_points(self, summary: str) -> list:
         """Extract bullet points from the summary if formatted with '-' prefix,

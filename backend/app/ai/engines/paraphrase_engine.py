@@ -147,6 +147,18 @@ class ParaphraseEngine(BaseAIEngine):
             "shorten": "You are a concise writer. Reduce word count while preserving key information. Output only the condensed text, no explanations, no labels, no markdown.",
         }
         prompt = base_prompts.get(mode, base_prompts["standard"])
+        # None of the 8 mode prompts above had an explicit instruction to
+        # preserve facts/numbers/negation -- a well-documented LLM
+        # paraphrasing failure mode (e.g. "does NOT support X" silently
+        # becoming "supports X"). Relying on the model's general sense of
+        # "preserving meaning" isn't a substitute for stating it
+        # explicitly, so make it a hard constraint on every mode.
+        prompt += (
+            "\n\nCRITICAL CONSTRAINTS: Never change the meaning of a negation "
+            "(e.g. 'does not support' must never become 'supports'). Preserve all "
+            "numbers, dates, names, quantities, and technical terms exactly as "
+            "given -- do not invent, round, or substitute any of them."
+        )
         if writing_dna:
             prompt += f"\n\nMatch this writing style: {writing_dna}"
         return prompt

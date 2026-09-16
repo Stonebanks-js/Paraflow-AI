@@ -91,5 +91,8 @@ class HumanizeEngine(BaseAIEngine):
             "(3) add subtle hedge words, occasional colloquialisms, and minor stylistic asymmetries; "
             "(4) polish for coherence and flow. "
             f"{tone_clause}{dna_clause} "
+            "CRITICAL: Never change the meaning of a negation (e.g. 'does not support' must "
+            "never become 'supports'). Preserve all numbers, dates, names, quantities, and "
+            "technical terms exactly as given. "
             "Return ONLY the humanized text with no explanations, no labels, no markdown."
         )
