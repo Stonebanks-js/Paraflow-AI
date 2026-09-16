@@ -2642,3 +2642,76 @@ Combined with Phase 21's results (hi, fr, es), **4 of 8 forward pairs** now have
 ## 6. Final Status, This Continuation
 
 Two real, evidence-based improvements were made and verified live with dramatic, correctly-directed results (a sample moving from "mixed" to a correct "ai" verdict, another from "mixed" to a correct "human" verdict). A cosmetic message-doubling bug was fixed. Most importantly, this session surfaced a genuine production concern -- a very tight Gemini API rate limit, evidenced across a full day and independent of this session's own testing pattern -- that is squarely the user's to act on and is reported here plainly rather than continuing to quietly retry around it.
+
+# Phase 23 - History, Projects, and Para Agent (free AI assistant)
+
+**Date:** 2026-09-17
+**Status:** New feature, built and live-verified end to end on production (Vercel + Render), against the real Supabase project via a direct Supabase MCP connection rather than a manual SQL handoff.
+
+## 0. Migration method: direct Supabase MCP, not a manual SQL file
+
+Every prior schema change this engagement (e.g. the `handle_new_user()` credits-trigger fix) was applied by writing a SQL file and having the user run it in the Supabase SQL Editor, because no direct database connection was available in this environment. This phase started the same way -- until the user pointed out they could connect a Supabase MCP server and asked that it be used instead of assuming a manual handoff was necessary.
+
+Confirmed via `ToolSearch` that no such connection existed yet, reported that plainly, and asked the user to connect one (`claude mcp add supabase ...` against `mcp.supabase.com/mcp`). Once connected, the migration below was applied directly with the MCP `apply_migration` tool against project `txpatnmsigkmmgrbhbel` -- verified before applying (`list_tables`) that `public.tool_jobs` already existed with the right shape, and after applying (`list_tables`, `get_advisors`) that the three new tables exist with RLS enabled and introduced no new security lint findings. This is the new default for schema changes in this project going forward.
+
+## 1. The reported bug: History 404
+
+The sidebar's "History" link (`/history`) and the Dashboard's "View all" recent-activity link both pointed at a route that never existed in the frontend -- a real, confirmed 404, not a display glitch. Root cause on the backend side: `public.tool_jobs` had existed in the schema since the original migration, with exactly the right shape for an engine-usage history feature (`user_id`, `tool_name`, `input_data`, `output_data`, `status`, `credits_used`, `created_at`), but no backend code had ever written to it -- the same "half-built infrastructure" pattern as Writing DNA's cross-engine wiring and SEO's `meta_quality` field earlier this engagement.
+
+**Fix:** a new `HistoryService` (`backend/app/services/history_service.py`) wired into `_run_tool()` in `tools.py` -- the shared pipeline all 7 standard tool endpoints already go through. Every call now logs a row on both success and failure (with the real error message on failure, and credits_used reflecting what was actually deducted, not the nominal cost), with an auto-generated title from the input text (e.g. "Translator: Good morning, hope your trip goes well.") the same way ChatGPT/Claude title a session from its first message -- never a generic placeholder.
+
+## 2. Projects
+
+New `public.projects` table (user-owned, RLS-scoped) so history and Para Agent chats can be grouped, Claude/ChatGPT-style. `tool_jobs` gained `title` and `project_id` columns (the latter nullable, `ON DELETE SET NULL` so deleting a project never deletes the history inside it). Every tool request schema gained an optional `project_id` field, threaded through to `_run_tool()`.
+
+Frontend: a "New project" dialog on `/history`, filter chips per project (with delete), and history grouped by date (Today / Yesterday / This week / This month / Older).
+
+## 3. Para Agent: a free, credit-free conversational assistant
+
+New tables `public.assistant_sessions` / `public.assistant_messages`, a new `AssistantService`, and a new `/assistant` frontend page. Explicitly free -- `AssistantService` never touches `BillingService`, unlike every one of the 7 paid tools.
+
+**Engine routing, not engine impersonation.** The requirement was: if the user wants a specific job done (translate, detect AI text, fix grammar, ...), point them to the dedicated tool rather than doing it inline for free. Rather than trying to guess intent with brittle keyword matching, the system prompt asks Gemini itself to end its reply with a machine-readable `[[ENGINE:<slug>]]` marker when (and only when) that applies; the backend strips the marker out of the visible text and turns it into a structured `suggested_engine` + `suggested_engine_url`, which the frontend renders as a clickable "Open this tool" link. Verified live: asking "translate this to French: ..." produced a real Gemini reply recommending the Translator tool with a working link that navigated to `/tools/translator` and pre-filled nothing but rendered the real page (translating for real there returned "Bonjour, j'espère que votre voyage se passera bien." and correctly deducted 8 credits, which then appeared in History).
+
+**Honest failures, not fake replies.** Live testing repeatedly hit the same Gemini rate limit documented in Phase 22 (`429 Too Many Requests`, evidenced across sessions, not this session's volume) -- Para Agent surfaced it as an honest in-chat error message with the session and both messages still persisted, never a fabricated answer, and never a credit charge (it doesn't charge credits at all). This is the same "no silent fake success" standard applied to every other engine this engagement.
+
+**File attachments.** Scoped explicitly to plain text (.txt/.md/.csv/.json/.log) read client-side via `FileReader` and sent as `attachment_text`/`attachment_name` -- no PDF/DOCX extraction, since no such library is in `requirements.txt` and adding one wasn't worth the scope creep for a first version. A non-text file is rejected client-side with a clear message rather than silently failing. Verified live: a `.txt` file attached, uploaded, and sent with its name shown as a chip on the message.
+
+**Session behavior verified live:**
+- New chat auto-titles itself from the first message once Gemini responds (or, on error, remains untitled since no message was ever answered) -- confirmed both a successful title ("What's a good way to start a...") and a for a Gemini-error turn the session was still created and listed.
+- Reopening a past session restores full message history, including the `suggested_engine_url` recomputed server-side from the stored `suggested_engine` slug (this was fixed during build: the first version only computed the redirect URL on the live `send_message` response, so a reopened old session showed the tool recommendation text but the link had gone missing -- fixed in `AssistantService.get_session()`).
+- Deleting a session removes it from the sidebar immediately.
+
+## 4. Dashboard integration
+
+- "Recent Activity" (previously a permanent "No recent activity" placeholder, regardless of real usage) now shows the 5 most recent real history items with tool icon, title, timestamp, and status badge.
+- A periodic "Need a hand?" nudge card in the bottom-right points at Para Agent, gated by `localStorage` to roughly once per day per browser rather than every dashboard visit -- verified live, appearing ~25s after the dashboard mounts.
+- Sidebar gained a "Para Agent" entry (between Dashboard and Paraphraser) with a dedicated icon.
+
+## 5. Live verification (production, not local)
+
+No local FastAPI runtime was available with real Supabase/Gemini credentials, so the same verification standard as the rest of this engagement applied: a full local dependency install (`pip install -r requirements.txt` into a throwaway venv) confirmed the app imports cleanly and all 8 new routes register (`/api/v1/history`, `/api/v1/history/{id}`, `/api/v1/projects`, `/api/v1/projects/{id}`, `/api/v1/assistant/sessions`, `/api/v1/assistant/sessions/{id}`, `/api/v1/assistant/sessions/{id}/messages`, `/api/v1/assistant/messages`) via `TestClient` against the real `openapi.json`; the frontend passed `tsc --noEmit` and a full `next build` before push. Real behavior was then verified against the live Render + Vercel deployments with an existing test account:
+
+| Check | Result |
+|---|---|
+| `/history` loads (was 404) | PASS |
+| New project creation + filter chip | PASS |
+| Running a real tool (Translator) logs to History with correct auto-title | PASS |
+| Deleting a history item | PASS |
+| Deleting a project | PASS |
+| Para Agent general chat | PASS (honest 429 surfaced, no charge) |
+| Para Agent engine routing + redirect link | PASS (live Gemini call, correct slug, working navigation) |
+| Para Agent session persistence incl. redirect link on reopen | PASS |
+| Para Agent file attachment upload | PASS |
+| Dashboard Recent Activity (real data) | PASS |
+| Dashboard Para Agent nudge popup | PASS |
+
+## 6. Build and deployment
+
+- Backend: `ast.parse` syntax sweep + full dependency install + `TestClient` route verification, zero errors.
+- Frontend: `tsc --noEmit` clean; `next build` succeeded (`/assistant` and `/history` both compile as static routes).
+- Git: commit `efc503d` on `main`, pushed. Render picked it up (~5 polling cycles, consistent with this engagement's typical deploy latency); Vercel redeployed automatically.
+- New dependency: `react-markdown` + `remark-gfm` (frontend only) for ChatGPT/Claude-style Markdown rendering in Para Agent, with every element explicitly styled rather than relying on an uninstalled typography plugin.
+
+## 7. Final status
+
+History, Projects, and Para Agent are live in production and verified through real browser interaction against the deployed app, not assumed from code review. The one genuine limitation surfaced during testing -- Gemini's rate limit intermittently blocking Para Agent replies -- is the same pre-existing, already-reported production concern from Phase 22, not a defect introduced here, and Para Agent's honest-error handling means it degrades the same way every other engine does: a clear message, zero credits charged, nothing fabricated.
