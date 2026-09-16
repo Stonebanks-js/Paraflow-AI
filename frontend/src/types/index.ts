@@ -75,9 +75,9 @@ export interface GrammarResponse extends ToolJob {
 export interface HumanizeResponse extends ToolJob {
   output?: string;
   detection_scores?: {
-    gptzero_estimated_pass_rate: number;
-    originality_estimated_pass_rate: number;
-    turnitin_estimated_pass_rate: number;
+    ai_likelihood_before: number | null;
+    ai_likelihood_after: number | null;
+    source: string;
   };
 }
 

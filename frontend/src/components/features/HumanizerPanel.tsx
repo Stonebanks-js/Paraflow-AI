@@ -117,13 +117,10 @@ Original Characters: ${inputStats.characters}
 Humanized Words: ${outputStats.words}
 Humanized Characters: ${outputStats.characters}
 
-DETECTION SCORES
-----------------
-GPTZero Pass Rate: ${Math.round((scores?.gptzero_estimated_pass_rate || 0) * 100)}%
-Originality.ai Pass Rate: ${Math.round((scores?.originality_estimated_pass_rate || 0) * 100)}%
-Turnitin Pass Rate: ${Math.round((scores?.turnitin_estimated_pass_rate || 0) * 100)}%
-
-OVERALL HUMAN SCORE: ${humanScore}%
+AI-LIKELIHOOD (Paraflow Detector)
+----------------------------------
+Before: ${scores?.ai_likelihood_before ?? "n/a"}${hasScores ? "/100" : ""}
+After: ${scores?.ai_likelihood_after ?? "n/a"}${hasScores ? "/100" : ""}
 
 ${'='.repeat(50)}
 
@@ -169,17 +166,20 @@ ${changesList.map((c, i) => `${i + 1}. ${c}`).join('\n')}
     sentences: outputText.split(/[.!?]+/).filter(s => s.trim()).length,
   }), [outputText]);
 
+  // scores now holds a real before/after measurement from Paraflow's own
+  // Detector engine (a genuine cross-engine call), not three fabricated
+  // numbers labeled with commercial tool names this product never
+  // actually integrates with (GPTZero/Originality.ai/Turnitin).
+  const hasScores = scores?.ai_likelihood_before != null && scores?.ai_likelihood_after != null;
   const humanScore = useMemo(() => {
-    if (!scores) return 0;
-    const avg = (
-      scores.gptzero_estimated_pass_rate +
-      scores.originality_estimated_pass_rate +
-      scores.turnitin_estimated_pass_rate
-    ) / 3;
-    return Math.round(avg * 100);
-  }, [scores]);
+    if (!hasScores) return null;
+    return Math.max(0, 100 - (scores!.ai_likelihood_after as number));
+  }, [hasScores, scores]);
 
   const changesList = useMemo(() => {
+    // Only claims actually backed by a real before/after comparison --
+    // no unconditional "vocabulary diversified"-style claims regardless
+    // of whether anything measurable changed.
     const changes: string[] = [];
     if (outputStats.words !== inputStats.words) {
       changes.push(`Word count adjusted from ${inputStats.words} to ${outputStats.words}`);
@@ -187,17 +187,23 @@ ${changesList.map((c, i) => `${i + 1}. ${c}`).join('\n')}
     if (Math.abs(outputStats.sentences - inputStats.sentences) > 0) {
       changes.push(`Sentence structure varied (${inputStats.sentences} → ${outputStats.sentences} sentences)`);
     }
-    changes.push("Vocabulary diversified with natural alternatives");
-    changes.push("Sentence rhythm improved for human-like flow");
-    changes.push("Reduced repetitive patterns");
-    changes.push("Added natural language variations");
+    if (hasScores && (scores!.ai_likelihood_before as number) !== (scores!.ai_likelihood_after as number)) {
+      const delta = (scores!.ai_likelihood_before as number) - (scores!.ai_likelihood_after as number);
+      changes.push(
+        delta > 0
+          ? `AI-likelihood score dropped ${delta} points (Paraflow Detector)`
+          : `AI-likelihood score rose ${Math.abs(delta)} points (Paraflow Detector) -- humanizing didn't reduce detector signals for this text`
+      );
+    }
+    if (changes.length === 0) {
+      changes.push("No measurable structural change detected between input and output");
+    }
     return changes;
-  }, [inputStats, outputStats]);
+  }, [inputStats, outputStats, hasScores, scores]);
 
   const detectionBreakdown = useMemo(() => [
-    { name: "GPTZero", score: Math.round((scores?.gptzero_estimated_pass_rate || 0) * 100), color: "text-green-500" },
-    { name: "Originality.ai", score: Math.round((scores?.originality_estimated_pass_rate || 0) * 100), color: "text-blue-500" },
-    { name: "Turnitin", score: Math.round((scores?.turnitin_estimated_pass_rate || 0) * 100), color: "text-purple-500" },
+    { name: "Before Humanizing", score: scores?.ai_likelihood_before ?? null, color: "text-red-500" },
+    { name: "After Humanizing", score: scores?.ai_likelihood_after ?? null, color: "text-green-500" },
   ], [scores]);
 
   const followUpSuggestions = [
@@ -238,10 +244,12 @@ ${changesList.map((c, i) => `${i + 1}. ${c}`).join('\n')}
                   <Coins className="w-4 h-4" />
                   <span>{creditsUsed} credits</span>
                 </div>
-                <div className="flex items-center gap-2 text-sm">
-                  <User className="w-4 h-4 text-green-500" />
-                  <span className="font-medium text-green-500">{humanScore}% Human Score</span>
-                </div>
+                {hasScores && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <User className="w-4 h-4 text-green-500" />
+                    <span className="font-medium text-green-500">{humanScore}% Human Score</span>
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={() => setShowComparison(!showComparison)}>
@@ -374,7 +382,7 @@ ${changesList.map((c, i) => `${i + 1}. ${c}`).join('\n')}
               <div>
                 <CardTitle>Humanization Results</CardTitle>
                 <CardDescription>
-                  {outputText ? `Human score: ${humanScore}%` : "Enter text to humanize"}
+                  {outputText ? (hasScores ? `Human score: ${humanScore}%` : "Humanized") : "Enter text to humanize"}
                 </CardDescription>
               </div>
               {outputText && <CopyButton text={outputText} />}
@@ -435,56 +443,61 @@ ${changesList.map((c, i) => `${i + 1}. ${c}`).join('\n')}
               </div>
             )}
 
-            {/* Report Tab */}
+            {/* Report Tab -- every value here is a real before/after
+                measurement from Paraflow's own Detector engine, run on
+                the actual input and output text. Previously this showed
+                three commercial tool names (GPTZero/Originality.ai/
+                Turnitin) whose "scores" were all just the user's
+                requested target pass rate echoed back -- never a real
+                measurement, and never actually integrated with any of
+                those tools. */}
             {activeTab === "report" && outputText && (
               <div className="space-y-6">
-                {/* Humanization Score */}
-                <div className="flex justify-center">
-                  <div className="flex flex-col items-center">
-                    <ScoreGauge score={humanScore} size="lg" />
-                    <p className="text-sm font-medium mt-2">Human Score</p>
-                    <p className="text-xs text-muted-foreground">Estimated pass rate across detectors</p>
-                  </div>
-                </div>
-
-                {/* Detection Breakdown */}
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium">Detection Tool Breakdown</h4>
-                  {detectionBreakdown.map((detector) => (
-                    <div key={detector.name} className="space-y-1">
-                      <div className="flex justify-between text-sm">
-                        <span>{detector.name}</span>
-                        <span className={detector.color}>{detector.score}%</span>
+                {hasScores ? (
+                  <>
+                    <div className="flex justify-center">
+                      <div className="flex flex-col items-center">
+                        <ScoreGauge score={humanScore as number} size="lg" />
+                        <p className="text-sm font-medium mt-2">Human Score</p>
+                        <p className="text-xs text-muted-foreground">100 - AI-likelihood, from Paraflow's own Detector</p>
                       </div>
-                      <Progress value={detector.score} className="h-2" />
                     </div>
-                  ))}
-                </div>
 
-                {/* Score Cards */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center p-4 rounded-lg bg-green-500/10">
-                    <CheckCheck className="w-6 h-6 text-green-500 mx-auto mb-2" />
-                    <p className="text-2xl font-bold text-green-500">
-                      {Math.round((scores?.gptzero_estimated_pass_rate || 0) * 100)}%
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-medium">Before / After (Paraflow Detector)</h4>
+                      {detectionBreakdown.map((detector) => (
+                        <div key={detector.name} className="space-y-1">
+                          <div className="flex justify-between text-sm">
+                            <span>{detector.name}</span>
+                            <span className={detector.color}>{detector.score}/100 AI-likelihood</span>
+                          </div>
+                          <Progress value={detector.score ?? 0} className="h-2" />
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="text-center p-4 rounded-lg bg-red-500/10">
+                        <AlertTriangle className="w-6 h-6 text-red-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-red-500">{scores!.ai_likelihood_before}/100</p>
+                        <p className="text-xs text-muted-foreground">AI-likelihood before</p>
+                      </div>
+                      <div className="text-center p-4 rounded-lg bg-green-500/10">
+                        <CheckCheck className="w-6 h-6 text-green-500 mx-auto mb-2" />
+                        <p className="text-2xl font-bold text-green-500">{scores!.ai_likelihood_after}/100</p>
+                        <p className="text-xs text-muted-foreground">AI-likelihood after</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Measured by Paraflow&apos;s own heuristic Detector, not a third-party tool -- see the Detector engine for its documented limitations.
                     </p>
-                    <p className="text-xs text-muted-foreground">GPTZero</p>
+                  </>
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <ShieldCheck className="w-10 h-10 mx-auto mb-3 opacity-50" />
+                    <p className="text-sm">Detector measurement not available for this result.</p>
                   </div>
-                  <div className="text-center p-4 rounded-lg bg-blue-500/10">
-                    <ShieldCheck className="w-6 h-6 text-blue-500 mx-auto mb-2" />
-                    <p className="text-2xl font-bold text-blue-500">
-                      {Math.round((scores?.originality_estimated_pass_rate || 0) * 100)}%
-                    </p>
-                    <p className="text-xs text-muted-foreground">Originality.ai</p>
-                  </div>
-                  <div className="text-center p-4 rounded-lg bg-purple-500/10">
-                    <AlertTriangle className="w-6 h-6 text-purple-500 mx-auto mb-2" />
-                    <p className="text-2xl font-bold text-purple-500">
-                      {Math.round((scores?.turnitin_estimated_pass_rate || 0) * 100)}%
-                    </p>
-                    <p className="text-xs text-muted-foreground">Turnitin</p>
-                  </div>
-                </div>
+                )}
               </div>
             )}
 

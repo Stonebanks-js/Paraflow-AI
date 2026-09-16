@@ -43,97 +43,24 @@ class ParaphraseEngine(BaseAIEngine):
                 "provider": result.get("provider"),
             }
 
-        # All providers failed - use local rule-based fallback
-        try:
-            output = self._local_paraphrase(input_text, mode, strength)
-            return {
-                "status": "success",
-                "output": output,
-                "mode": mode,
-                "word_count_diff": len(output.split()) - len(input_text.split()),
-                "model_used": "local-fallback",
-                "provider": "local",
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "error": f"All providers failed: {result.get('error', 'unknown')}",
-            }
-
-    def _local_paraphrase(self, text: str, mode: str, strength: int) -> str:
-        """Local rule-based paraphrase fallback."""
-        import re
-        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if s.strip()]
-        if not sentences:
-            return text
-
-        out = [self._rewrite_sentence(s, mode, i, strength) for i, s in enumerate(sentences)]
-
-        if mode == "expand":
-            connectors = ["Additionally,", "Furthermore,", "Moreover,", "It's worth noting that"]
-            for i, s in enumerate(out):
-                if i > 0 and i % 2 == 0:
-                    out[i] = f"{connectors[i % len(connectors)]} {s}"
-        elif mode == "shorten":
-            out = [s.split(",")[0] + "." if "," in s else s for s in out]
-        elif mode == "simple":
-            replacements = {
-                "utilize": "use", "commence": "start", "terminate": "end",
-                "demonstrate": "show", "facilitate": "help", "subsequently": "then",
-                "additionally": "also", "furthermore": "also", "however": "but",
-                "nevertheless": "still", "approximately": "about", "sufficient": "enough",
-            }
-            for i, s in enumerate(out):
-                for old, new in replacements.items():
-                    s = re.sub(rf'\b{old}\b', new, s, flags=re.IGNORECASE)
-                out[i] = s
-        elif mode == "formal":
-            out = [s.replace("don't", "do not").replace("won't", "will not").replace("can't", "cannot")
-                       .replace("I'm", "I am").replace("you're", "you are") for s in out]
-
-        return " ".join(out)
-
-    def _rewrite_sentence(self, sentence: str, mode: str, index: int, strength: int) -> str:
-        if not sentence:
-            return sentence
-        words = sentence.split()
-        if len(words) < 4:
-            return sentence
-
-        substitutions = {
-            "standard": {
-                "important": "significant", "big": "large", "small": "minor",
-                "good": "favorable", "bad": "unfavorable", "use": "utilize",
-                "show": "demonstrate", "make": "create", "get": "obtain",
-                "help": "assist", "start": "initiate", "end": "conclude",
-            },
-            "fluency": {
-                "however": "nevertheless", "therefore": "consequently",
-                "because": "since", "but": "yet", "and": "additionally",
-                "also": "moreover",
-            },
+        # Previously fell back to a local rule-based "paraphrase" here and
+        # still reported status:"success". Found live during this phase's
+        # testing (Gemini under sustained rate-limiting): that fallback's
+        # entire vocabulary is a ~12-word substitution dictionary capped
+        # at one swap per request at moderate strength -- for the large
+        # majority of realistic sentences (no dictionary word present) it
+        # is a complete no-op, returning the input text 100% unchanged
+        # while still reporting success and charging credits. Confirmed
+        # reproducible: three different real sentences all came back
+        # byte-identical to their input. This is the exact same failure
+        # class as the Translator bug fixed earlier this phase --
+        # pretending a non-result is a result -- so it gets the same fix:
+        # an honest error instead of a fake success. No credits are
+        # charged for this (_run_tool only deducts on genuine success).
+        return {
+            "status": "error",
+            "error": f"Paraphrasing failed: {result.get('error', 'the AI service did not respond in time')}. Please try again.",
         }
-        sub = substitutions.get(mode, substitutions["standard"])
-        max_subs = max(1, strength // 30)
-        new_words = []
-        sub_count = 0
-        for word in words:
-            word_lower = word.lower().strip('.,!?;:')
-            if word_lower in sub and sub_count < max_subs:
-                replacement = sub[word_lower]
-                if word[0].isupper():
-                    replacement = replacement[0].upper() + replacement[1:]
-                trailing = ""
-                for ch in word[::-1]:
-                    if ch in '.,!?;:':
-                        trailing = ch + trailing
-                    else:
-                        break
-                new_words.append(replacement + trailing)
-                sub_count += 1
-            else:
-                new_words.append(word)
-        return " ".join(new_words)
 
     def _build_system_prompt(self, mode: str, writing_dna: Optional[str]) -> str:
         base_prompts = {

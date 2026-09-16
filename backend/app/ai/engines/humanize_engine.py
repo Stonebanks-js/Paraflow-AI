@@ -28,11 +28,16 @@ class HumanizeEngine(BaseAIEngine):
 
         if result.get("status") == "success" and result.get("output"):
             output = result["output"]
-            detection_scores = {
-                "gptzero_estimated_pass_rate": target_pass_rate,
-                "originality_estimated_pass_rate": target_pass_rate,
-                "turnitin_estimated_pass_rate": target_pass_rate,
-            }
+            # Previously "detection_scores" named three specific commercial
+            # tools (GPTZero, Originality.ai, Turnitin) but the values for
+            # all three were just target_pass_rate -- the USER'S requested
+            # target, echoed back as if it were three independent real
+            # measurements. This product has no integration with any of
+            # those tools. Replaced with a genuine before/after measurement
+            # from Paraflow's own Detector engine (a real cross-engine use,
+            # not a fabricated one), clearly labeled as this product's own
+            # heuristic rather than borrowing a third party's name.
+            detection_scores = await self._measure_before_after(input_text, output)
             return {
                 "status": "success",
                 "output": output,
@@ -42,35 +47,42 @@ class HumanizeEngine(BaseAIEngine):
                 "provider": result.get("provider"),
             }
 
-        # All providers failed - use local humanize fallback
-        output = self._local_humanize(input_text)
-        detection_scores = {
-            "gptzero_estimated_pass_rate": target_pass_rate,
-            "originality_estimated_pass_rate": target_pass_rate,
-            "turnitin_estimated_pass_rate": target_pass_rate,
-        }
+        # Previously fell back to a local contraction-substitution
+        # "humanize" here and still reported status:"success". Found live
+        # during this phase's testing (Gemini under sustained rate-
+        # limiting): its entire vocabulary is ~10 exact formal phrases
+        # ("do not", "will not", ...) -- for the large majority of
+        # realistic input (no exact match, or already-casual text) it is
+        # a complete no-op, returning the input 100% unchanged while
+        # still charging credits and reporting success. Same failure
+        # class as the Translator and Paraphraser bugs fixed this phase --
+        # an honest error instead of a fake success. No credits are
+        # charged for this (_run_tool only deducts on genuine success).
         return {
-            "status": "success",
-            "output": output,
-            "detection_scores": detection_scores,
-            "passes_completed": 1,
-            "model": "local-fallback",
-            "provider": "local",
+            "status": "error",
+            "error": f"Humanization failed: {result.get('error', 'the AI service did not respond in time')}. Please try again.",
         }
 
-    def _local_humanize(self, text: str) -> str:
-        """Local humanize fallback using contractions and hedge words."""
-        import re
-        soften = {
-            "do not": "don't", "will not": "won't", "cannot": "can't",
-            "I am": "I'm", "you are": "you're", "we are": "we're",
-            "it is": "it's", "that is": "that's", "there is": "there's",
-            "would not": "wouldn't", "could not": "couldn't",
-        }
-        result = text
-        for formal, casual in soften.items():
-            result = re.sub(rf'\b{formal}\b', casual, result, flags=re.IGNORECASE)
-        return result
+    async def _measure_before_after(self, original: str, humanized: str) -> dict:
+        """Real before/after AI-likelihood scores from Paraflow's own
+        Detector engine -- honest about being this product's own
+        heuristic, not a claim of GPTZero/Originality.ai/Turnitin
+        integration this product doesn't have. Never lets a detector
+        failure break humanization itself; degrades to None on error."""
+        try:
+            from .detect_engine import DetectEngine
+            detector = DetectEngine()
+            before = await detector.process(original)
+            after = await detector.process(humanized)
+            before_score = before.get("result", {}).get("score") if before.get("status") == "success" else None
+            after_score = after.get("result", {}).get("score") if after.get("status") == "success" else None
+            return {
+                "ai_likelihood_before": before_score,
+                "ai_likelihood_after": after_score,
+                "source": "paraflow_detector",
+            }
+        except Exception:
+            return {"ai_likelihood_before": None, "ai_likelihood_after": None, "source": "paraflow_detector"}
 
     def _build_system_prompt(self, target_pass_rate: float, writing_dna: Optional[str]) -> str:
         tone_clause = (
