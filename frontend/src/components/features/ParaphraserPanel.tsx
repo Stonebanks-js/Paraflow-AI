@@ -227,7 +227,12 @@ ${alternatives.map((alt, i) => `${i + 1}. ${alt}`).join('\n\n')}
   const creditsUsedValue = creditsUsed;
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="space-y-6"
+    >
       {/* Results Overview Card */}
       {outputText && (
         <Card className="bg-gradient-to-r from-blue-500/5 to-violet-500/5 border-blue-500/20">
@@ -662,6 +667,6 @@ ${alternatives.map((alt, i) => `${i + 1}. ${alt}`).join('\n\n')}
           </CardContent>
         </Card>
       )}
-    </div>
+    </motion.div>
   );
 }

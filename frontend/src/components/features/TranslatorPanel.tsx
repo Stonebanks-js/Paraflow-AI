@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -218,7 +219,12 @@ ${outputText}
   const creditsUsed = translateMutation.data?.credits_used ?? 8;
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="space-y-6"
+    >
       {/* Results Overview Card */}
       {outputText && (
         <Card className="bg-gradient-to-r from-pink-500/5 to-rose-500/5 border-pink-500/20">
@@ -639,6 +645,6 @@ ${outputText}
           </CardContent>
         </Card>
       )}
-    </div>
+    </motion.div>
   );
 }

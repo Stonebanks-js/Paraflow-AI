@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -257,7 +258,12 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
   const creditsUsed = grammarMutation.data?.credits_used ?? 3;
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="space-y-6"
+    >
       {/* Results Overview Card */}
       {outputText && (
         <Card className="bg-gradient-to-r from-orange-500/5 to-amber-500/5 border-orange-500/20">
@@ -651,6 +657,6 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
           </CardContent>
         </Card>
       )}
-    </div>
+    </motion.div>
   );
 }

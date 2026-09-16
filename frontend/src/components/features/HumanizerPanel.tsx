@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -209,7 +210,12 @@ ${changesList.map((c, i) => `${i + 1}. ${c}`).join('\n')}
   const creditsUsed = humanizeMutation.data?.credits_used ?? 10;
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="space-y-6"
+    >
       {/* Results Overview Card */}
       {outputText && (
         <Card className="bg-gradient-to-r from-purple-500/5 to-pink-500/5 border-purple-500/20">
@@ -598,6 +604,6 @@ ${changesList.map((c, i) => `${i + 1}. ${c}`).join('\n')}
           </CardContent>
         </Card>
       )}
-    </div>
+    </motion.div>
   );
 }

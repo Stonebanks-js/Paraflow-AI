@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -176,7 +177,12 @@ ${keyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}
   const creditsUsed = summarizeMutation.data?.credits_used ?? 5;
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="space-y-6"
+    >
       {/* Results Overview Card */}
       {outputText && (
         <Card className="bg-gradient-to-r from-cyan-500/5 to-blue-500/5 border-cyan-500/20">
@@ -581,6 +587,6 @@ ${keyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}
           </CardContent>
         </Card>
       )}
-    </div>
+    </motion.div>
   );
 }

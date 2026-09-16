@@ -1,5 +1,6 @@
 "use client";
 
+import { motion } from "framer-motion";
 import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -167,7 +168,12 @@ export function DetectorPanel() {
   const creditsUsed = detectMutation.data?.credits_used ?? 3;
 
   return (
-    <div className="space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className="space-y-6"
+    >
       {/* Results Overview Card */}
       {result && (
         <Card className={cn(
@@ -554,6 +560,6 @@ export function DetectorPanel() {
           </CardContent>
         </Card>
       )}
-    </div>
+    </motion.div>
   );
 }
