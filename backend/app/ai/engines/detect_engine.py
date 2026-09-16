@@ -39,12 +39,14 @@ class DetectEngine(BaseAIEngine):
         perplexity_score = self._analyze_perplexity(input_text)
         burstiness_score = self._analyze_burstiness(input_text)
         semantic_score = self._analyze_semantic(input_text)
+        lexical_score = self._analyze_lexical_diversity(input_text)
 
-        weights = {"perplexity": 0.35, "burstiness": 0.25, "semantic": 0.40}
+        weights = {"perplexity": 0.30, "burstiness": 0.20, "semantic": 0.35, "lexical": 0.15}
         final_score = int(
             perplexity_score * weights["perplexity"]
             + burstiness_score * weights["burstiness"]
             + semantic_score * weights["semantic"]
+            + lexical_score * weights["lexical"]
         )
         final_score = max(0, min(100, final_score))
 
@@ -70,6 +72,7 @@ class DetectEngine(BaseAIEngine):
                     "perplexity": perplexity_score,
                     "burstiness": burstiness_score,
                     "semantic": semantic_score,
+                    "lexical_diversity": lexical_score,
                 },
             },
         }
@@ -153,6 +156,52 @@ class DetectEngine(BaseAIEngine):
         semantic_score = min(pattern_count / text_length_factor * 18, 100)
 
         return max(0, min(95, semantic_score))
+
+    def _analyze_lexical_diversity(self, text: str) -> float:
+        """A real, established stylometric measure (not a phrase-matching
+        heuristic like _analyze_semantic): Root TTR / Guiraud's Index --
+        R = unique_words / sqrt(total_words) -- a standard length-
+        corrected lexical-diversity metric from computational linguistics
+        (plain type-token ratio is unusable here since it mechanically
+        drops as text gets longer regardless of authorship; the sqrt
+        correction is the well-known fix for that). Combined with a
+        genuine, well-documented AI-writing tell: repeated sentence
+        openers (starting consecutive sentences with the same word,
+        e.g. "The... The... The...", or leaning heavily on a small set
+        of transitional openers across the piece).
+
+        Lower diversity / more repeated openers -> higher AI-likelihood
+        contribution. This is still a proxy signal, not proof -- some
+        human writers are naturally repetitive and some AI output is
+        genuinely varied -- which is why it's one of four signals with a
+        modest weight, not a standalone verdict.
+        """
+        words = [w.strip(".,!?;:\"'()").lower() for w in text.split() if w.strip(".,!?;:\"'()")]
+        if len(words) < 15:
+            return 50.0
+
+        unique_words = len(set(words))
+        root_ttr = unique_words / (len(words) ** 0.5)
+        # Typical Root TTR for natural English prose lands roughly 4-9;
+        # notably low values correlate with repetitive/formulaic word
+        # choice. Map onto a 0-100 AI-likelihood contribution (low
+        # diversity = higher score), clamped to a sane range.
+        diversity_component = max(0, min(100, (7.5 - root_ttr) * 18 + 40))
+
+        sentences = [
+            s.strip() for s in text.replace("!", ".").replace("?", ".").split(".")
+            if s.strip()
+        ]
+        openers = [s.split()[0].lower() for s in sentences if s.split()]
+        repeat_component = 0.0
+        if len(openers) >= 3:
+            most_common_count = max((openers.count(o) for o in set(openers)), default=0)
+            repeat_ratio = most_common_count / len(openers)
+            if repeat_ratio > 0.4:
+                repeat_component = min(100, (repeat_ratio - 0.4) * 150)
+
+        combined = diversity_component * 0.7 + repeat_component * 0.3
+        return max(0, min(100, combined))
 
     def _find_ai_spans(self, text: str, overall_score: int) -> List[dict]:
         if overall_score < 50:

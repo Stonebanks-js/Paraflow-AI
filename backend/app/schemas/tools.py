@@ -41,6 +41,7 @@ class DetectionResult(BaseModel):
     verdict: Literal["human", "ai", "mixed"]
     confidence: float
     highlighted_spans: list[dict]
+    classifier_breakdown: Optional[dict] = None
 
 
 class DetectResponse(BaseModel):

@@ -398,26 +398,42 @@ export function DetectorPanel() {
                   </div>
                 </div>
 
+                {/* Every value and description below is read from
+                    result.classifier_breakdown -- the actual per-signal
+                    scores this specific text produced, not static copy
+                    shown regardless of what was analyzed. */}
                 <div className="pt-4 border-t">
                   <h4 className="text-sm font-medium mb-3">Analysis Details</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Perplexity Analysis:</span>
-                      <p className="font-medium">Normal variance in text complexity</p>
+                  {result.classifier_breakdown ? (
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Sentence Uniformity: {Math.round(result.classifier_breakdown.perplexity)}/100</span>
+                        <p className="font-medium">
+                          {result.classifier_breakdown.perplexity > 60 ? "Sentences are unusually uniform in length" : "Natural variance in sentence complexity"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Burstiness: {Math.round(result.classifier_breakdown.burstiness)}/100</span>
+                        <p className="font-medium">
+                          {result.classifier_breakdown.burstiness < 35 ? "Low variation between sentence lengths" : "Natural sentence-length variation detected"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">AI Phrase Matches: {Math.round(result.classifier_breakdown.semantic)}/100</span>
+                        <p className="font-medium">
+                          {result.classifier_breakdown.semantic > 40 ? "Common AI-writing phrases detected" : "Few or no known AI-writing phrases found"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Lexical Diversity: {Math.round(result.classifier_breakdown.lexical_diversity)}/100</span>
+                        <p className="font-medium">
+                          {result.classifier_breakdown.lexical_diversity > 55 ? "Repetitive word choice or sentence openers" : "Varied vocabulary and sentence structure"}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <span className="text-muted-foreground">Burstiness Analysis:</span>
-                      <p className="font-medium">Natural sentence variation detected</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Semantic Patterns:</span>
-                      <p className="font-medium">Common AI phrases: none found</p>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Pattern Repetition:</span>
-                      <p className="font-medium">Within normal human range</p>
-                    </div>
-                  </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Detailed signal breakdown not available for this result.</p>
+                  )}
                 </div>
               </div>
             )}

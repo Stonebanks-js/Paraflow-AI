@@ -210,6 +210,7 @@ async def detect(
                     "verdict": detection_result["verdict"],
                     "confidence": detection_result["confidence"],
                     "highlighted_spans": detection_result["highlighted_spans"],
+                    "classifier_breakdown": detection_result.get("classifier_breakdown"),
                 },
             }
         return result

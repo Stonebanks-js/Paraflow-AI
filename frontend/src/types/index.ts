@@ -50,6 +50,12 @@ export interface DetectionResult {
     probability: number;
     text: string;
   }>;
+  classifier_breakdown?: {
+    perplexity: number;
+    burstiness: number;
+    semantic: number;
+    lexical_diversity: number;
+  };
 }
 
 export interface GrammarIssue {
