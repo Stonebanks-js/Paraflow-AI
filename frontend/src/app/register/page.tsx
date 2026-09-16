@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Sparkles, Mail, Lock, User, Eye, EyeOff, Feather, Dna, FileText, Search, Check } from "lucide-react";
+import { Sparkles, Mail, Lock, User, Eye, EyeOff, Feather, FileText, Search, Check } from "lucide-react";
 import { Button, Input } from "@/components/ui";
 import { useUserStore } from "@/stores";
 import {
@@ -148,6 +148,13 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen flex">
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-primary/20 via-background to-purple-500/10">
+        <div
+          className="absolute inset-0 opacity-40"
+          style={{
+            backgroundImage: "radial-gradient(hsl(var(--foreground) / 0.12) 1px, transparent 1px)",
+            backgroundSize: "28px 28px",
+          }}
+        />
         <div className="absolute inset-0">
           <motion.div
             animate={{ scale: [1, 1.2, 1], rotate: [0, 180, 360] }}
@@ -174,23 +181,23 @@ export default function RegisterPage() {
               Start Your Writing{" "}
               <span className="gradient-text">Transformation</span>
             </h1>
-            <p className="text-xl text-muted-foreground mb-12 max-w-md">
+            <p className="text-xl text-muted-foreground mb-10 max-w-md">
               Join thousands of writers who have elevated their craft with AI-powered intelligence.
             </p>
 
-            <div className="space-y-4 mb-12">
+            <div className="space-y-3 mb-10">
               {benefits.map((benefit, i) => (
                 <motion.div
                   key={benefit}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.5 + i * 0.1 }}
-                  className="flex items-center gap-4"
+                  className="flex items-center gap-4 rounded-xl bg-card/50 backdrop-blur-sm border border-border/40 px-4 py-3"
                 >
-                  <div className="w-8 h-8 rounded-full bg-success/20 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-success/20 flex items-center justify-center shrink-0">
                     <Check className="w-4 h-4 text-success" />
                   </div>
-                  <span className="text-lg">{benefit}</span>
+                  <span className="font-medium">{benefit}</span>
                 </motion.div>
               ))}
             </div>
@@ -223,7 +230,7 @@ export default function RegisterPage() {
             </Link>
           </div>
 
-          <div className="text-center mb-8">
+          <div className="mb-8">
             <h2 className="text-3xl font-bold mb-2">Create Account</h2>
             <p className="text-muted-foreground">Start your writing intelligence journey</p>
           </div>

@@ -4,8 +4,8 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Sparkles, Mail, Lock, Eye, EyeOff, Feather, FileText, Search } from "lucide-react";
-import { Button, Input } from "@/components/ui";
+import { Sparkles, Mail, Lock, Eye, EyeOff, Feather, FileText, Search, Star } from "lucide-react";
+import { Button, Input, Card } from "@/components/ui";
 import { useUserStore } from "@/stores";
 import {
   signInWithEmail,
@@ -114,7 +114,7 @@ function LoginForm() {
         </Link>
       </div>
 
-      <div className="text-center mb-8">
+      <div className="mb-8">
         <h2 className="text-3xl font-bold mb-2">Welcome Back</h2>
         <p className="text-muted-foreground">Sign in to continue to your workspace</p>
       </div>
@@ -230,59 +230,97 @@ function LoginForm() {
   );
 }
 
+function BrandPanel() {
+  return (
+    <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-primary/20 via-background to-purple-500/10">
+      {/* Dot-grid texture */}
+      <div
+        className="absolute inset-0 opacity-40"
+        style={{
+          backgroundImage: "radial-gradient(hsl(var(--foreground) / 0.12) 1px, transparent 1px)",
+          backgroundSize: "28px 28px",
+        }}
+      />
+      <div className="absolute inset-0">
+        <motion.div
+          animate={{ scale: [1, 1.2, 1], rotate: [0, 180, 360] }}
+          transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+          className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-primary/30 to-transparent rounded-full blur-3xl"
+        />
+        <motion.div
+          animate={{ scale: [1.2, 1, 1.2], rotate: [360, 180, 0] }}
+          transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+          className="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-purple-500/20 to-transparent rounded-full blur-3xl"
+        />
+      </div>
+
+      <div className="relative z-10 flex flex-col justify-center p-12 w-full">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
+          <Link href="/" className="flex items-center gap-3 mb-8">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center shadow-lg shadow-primary/30">
+              <Sparkles className="w-7 h-7 text-white" />
+            </div>
+            <span className="font-bold text-3xl">Paraflow AI</span>
+          </Link>
+
+          <h1 className="text-5xl font-bold mb-6 leading-tight">
+            Writing Intelligence,{" "}
+            <span className="gradient-text">Reimagined</span>
+          </h1>
+          <p className="text-xl text-muted-foreground mb-10 max-w-md">
+            Transform your writing with AI-powered tools that understand your unique style and enhance your productivity.
+          </p>
+
+          <div className="space-y-3 mb-10">
+            {features.map((feature, i) => (
+              <motion.div
+                key={feature.text}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.5 + i * 0.1 }}
+                className="flex items-center gap-4 rounded-xl bg-card/50 backdrop-blur-sm border border-border/40 px-4 py-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                  <feature.icon className="w-5 h-5 text-primary" />
+                </div>
+                <span className="font-medium">{feature.text}</span>
+              </motion.div>
+            ))}
+          </div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.9 }}
+          >
+            <Card className="glass border-border/50 max-w-sm">
+              <div className="p-4 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-sm font-semibold shrink-0">
+                  SC
+                </div>
+                <div>
+                  <div className="flex gap-0.5 mb-1">
+                    {[...Array(5)].map((_, i) => (
+                      <Star key={i} className="w-3 h-3 fill-warning text-warning" />
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground leading-snug">
+                    &ldquo;Completely transformed our content workflow.&rdquo; — Sarah C.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
 export default function LoginPage() {
   return (
     <div className="min-h-screen flex">
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-gradient-to-br from-primary/20 via-background to-purple-500/10">
-        <div className="absolute inset-0">
-          <motion.div
-            animate={{ scale: [1, 1.2, 1], rotate: [0, 180, 360] }}
-            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-            className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-primary/30 to-transparent rounded-full blur-3xl"
-          />
-          <motion.div
-            animate={{ scale: [1.2, 1, 1.2], rotate: [360, 180, 0] }}
-            transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-            className="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-purple-500/20 to-transparent rounded-full blur-3xl"
-          />
-        </div>
-
-        <div className="relative z-10 flex flex-col justify-center p-12">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8 }}>
-            <Link href="/" className="flex items-center gap-3 mb-8">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center shadow-lg shadow-primary/30">
-                <Sparkles className="w-7 h-7 text-white" />
-              </div>
-              <span className="font-bold text-3xl">Paraflow AI</span>
-            </Link>
-
-            <h1 className="text-5xl font-bold mb-6 leading-tight">
-              Writing Intelligence,{" "}
-              <span className="gradient-text">Reimagined</span>
-            </h1>
-            <p className="text-xl text-muted-foreground mb-12 max-w-md">
-              Transform your writing with AI-powered tools that understand your unique style and enhance your productivity.
-            </p>
-
-            <div className="space-y-4">
-              {features.map((feature, i) => (
-                <motion.div
-                  key={feature.text}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.5 + i * 0.1 }}
-                  className="flex items-center gap-4"
-                >
-                  <div className="w-12 h-12 rounded-xl bg-card/80 backdrop-blur flex items-center justify-center border border-border/50">
-                    <feature.icon className="w-6 h-6 text-primary" />
-                  </div>
-                  <span className="text-lg font-medium">{feature.text}</span>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
-      </div>
+      <BrandPanel />
 
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
         <motion.div
