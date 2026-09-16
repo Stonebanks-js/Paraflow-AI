@@ -28,14 +28,28 @@ _client_cache = {}
 
 
 def _get_gemini_client(api_key: str, timeout: float = 10.0) -> httpx.Client:
-    """Return a singleton httpx.Client for Gemini with connection reuse."""
+    """Return a singleton httpx.Client for Gemini with connection reuse.
+
+    SECURITY: the key is sent as the `x-goog-api-key` header, never as a
+    `?key=` query param. This was previously query-param auth, which
+    means the live key was baked into every request URL -- and httpx
+    exceptions (HTTPStatusError, and generic HTTPError string reprs)
+    include the request URL in their message. That meant any code path
+    that surfaced a raw exception message (logs, or worse, an API error
+    response returned to a browser) leaked the key in plaintext. This
+    was reproduced live: a genuine 429 from Gemini came back to the
+    frontend with the full key visible in the error text. Header-based
+    auth removes the entire class of bug at its source, since the key
+    can no longer appear in a URL under any circumstance -- see also
+    the exception-message sanitization below as defense in depth.
+    """
     cache_key = f"gemini:{api_key[:8]}"
     if cache_key not in _client_cache:
         with _client_lock:
             if cache_key not in _client_cache:
                 _client_cache[cache_key] = httpx.Client(
                     base_url=GEMINI_BASE_URL,
-                    params={"key": api_key},
+                    headers={"x-goog-api-key": api_key},
                     timeout=httpx.Timeout(timeout, connect=5.0),
                     limits=httpx.Limits(
                         max_connections=10,
@@ -119,18 +133,36 @@ class GeminiProvider(BaseLLMProvider):
                 "gemini.request.timeout",
                 model=model,
                 latency=round(elapsed, 3),
-                error=str(e)[:200],
             )
-            raise RuntimeError(f"Gemini timed out after {elapsed:.1f}s") from e
+            raise RuntimeError(f"Gemini timed out after {elapsed:.1f}s") from None
+        except httpx.HTTPStatusError as e:
+            # Build the message from status code + reason only -- never
+            # str(e), which for HTTPStatusError includes the full request
+            # URL. Now that auth is header-based the key can't appear
+            # there anymore either way, but this is deliberate defense in
+            # depth: no exception's raw string repr should ever reach a
+            # log line or an API response without going through an
+            # explicit allow-list of what's safe to include.
+            elapsed = time.monotonic() - start
+            status = e.response.status_code
+            reason = e.response.reason_phrase or "error"
+            logger.error(
+                "gemini.request.error",
+                model=model,
+                latency=round(elapsed, 3),
+                status=status,
+                reason=reason,
+            )
+            raise RuntimeError(f"Gemini error: {status} {reason}") from None
         except httpx.HTTPError as e:
             elapsed = time.monotonic() - start
             logger.error(
                 "gemini.request.error",
                 model=model,
                 latency=round(elapsed, 3),
-                error=str(e)[:200],
+                error_type=type(e).__name__,
             )
-            raise
+            raise RuntimeError("Gemini request failed") from None
 
         data = response.json()
 
