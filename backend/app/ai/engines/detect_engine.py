@@ -87,7 +87,15 @@ class DetectEngine(BaseAIEngine):
             s.strip() for s in text.replace("!", ".").replace("?", ".").split(".")
             if s.strip()
         ]
-        if len(sentences) < 3:
+        # Was < 3 -- found via this phase's expanded eval set that most
+        # short real-world text (a 1-2 sentence paragraph, common for
+        # social posts and short AI-detection queries) has only 1-2
+        # sentences, silently falling back to a neutral 50/50 on BOTH
+        # signals with zero actual discrimination. 2 data points is a
+        # weaker CV estimate than 3+, but meaningfully better than
+        # discarding the signal entirely for a large share of realistic
+        # short inputs.
+        if len(sentences) < 2:
             return None
         lengths = [len(s.split()) for s in sentences]
         avg = sum(lengths) / len(lengths)
@@ -176,7 +184,11 @@ class DetectEngine(BaseAIEngine):
             "unlock the potential", "unlocking the potential", "seamless integration",
             "in summary", "to summarize", "overall, it can be concluded",
             "on the other hand", "in this article, we will", "in this post, we will",
-            "let's dive in", "the importance of", "cannot be overstated",
+            "let's dive in", "dive into", "the importance of", "cannot be overstated",
+            "comprehensive guide", "valuable insights", "actionable tips",
+            "actionable advice", "seasoned professional", "every step of the way",
+            "we've got you covered", "whether you're a", "expert advice",
+            "by implementing these", "significantly enhance", "achieve a better",
             "in the ever-evolving", "in an increasingly", "landscape of",
             "fosters a sense of", "underscores the", "serves as a", "stands as a",
             "boasts", "leverage", "leveraging", "utilize", "utilizing",
