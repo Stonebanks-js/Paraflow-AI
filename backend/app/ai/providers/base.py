@@ -148,9 +148,19 @@ class BaseLLMProvider(ABC):
                 error_type=type(e).__name__,
                 error_msg=str(e)[:200],
             )
+            # _do_generate() implementations already raise RuntimeError
+            # with a clean, pre-sanitized message (e.g. "Gemini timed out
+            # after 10.0s") -- re-wrapping that here as "{self.name} error:
+            # {message}" produced a visibly doubled "gemini error: Gemini
+            # error: ..." for the 429/HTTPStatusError path specifically.
+            # Pass a RuntimeError's own message through as-is; only wrap
+            # genuinely unexpected exception types, where the safety net
+            # (and the provider-name prefix, since the message alone may
+            # not indicate its origin) is actually needed.
+            message = str(e)[:200] if isinstance(e, RuntimeError) else f"{self.name} error: {str(e)[:200]}"
             return LLMError(
                 code="PROVIDER_ERROR",
-                message=f"{self.name} error: {str(e)[:200]}",
+                message=message,
                 provider=self.name,
                 retriable=True,
                 latency_seconds=latency,
