@@ -24,6 +24,7 @@ class GrammarEngine(BaseAIEngine):
             return {"status": "error", "error": "Invalid input"}
 
         language = options.get("language", "en") if options else "en"
+        writing_dna = options.get("writing_dna") if options else None
 
         issues = self._stage1_rule_based(input_text)
 
@@ -37,9 +38,17 @@ class GrammarEngine(BaseAIEngine):
         # market yesterday." came back completely unchanged with "no
         # issues found", since none of its words are in the misspelling
         # dictionary even though the sentence has an obvious error).
+        style_clause = (
+            f"\n\nThe author's established writing style (from their Writing DNA profile):\n{writing_dna}\n"
+            "Preserve genuine stylistic choices that match this profile (e.g. contraction use, "
+            "sentence length, tone) even if a different phrasing would also be valid -- only "
+            "change what is an actual error, never 'correct' a real stylistic preference away."
+            if writing_dna else ""
+        )
         system_prompt = (
             "Fix grammar, spelling, punctuation, and style issues in the following text. "
-            "Preserve the author's voice and the original meaning. "
+            "Preserve the author's voice and the original meaning."
+            f"{style_clause} "
             "Return ONLY the corrected text with no explanations, no labels, no quotes, no markdown."
         )
         result = generate_dict(

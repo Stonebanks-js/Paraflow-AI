@@ -131,10 +131,14 @@ async def paraphrase(
     current_user = Depends(get_current_user),
 ):
     async def _build():
+        from app.services.writing_dna_service import WritingDNAService
+        writing_dna = await WritingDNAService().get_style_context(current_user["id"])
+
         engine = ParaphraseEngine()
         result = await engine.process(request.text, {
             "mode": request.mode,
             "strength": request.strength,
+            "writing_dna": writing_dna,
         })
         if result.get("status") == "success":
             health = health_service.calculate_score()
@@ -162,9 +166,13 @@ async def humanize(
     current_user = Depends(get_current_user),
 ):
     async def _build():
+        from app.services.writing_dna_service import WritingDNAService
+        writing_dna = await WritingDNAService().get_style_context(current_user["id"])
+
         engine = HumanizeEngine()
         result = await engine.process(request.text, {
             "target_pass_rate": request.target_pass_rate,
+            "writing_dna": writing_dna,
         })
         if result.get("status") == "success":
             return {
@@ -221,8 +229,11 @@ async def grammar_check(
     current_user = Depends(get_current_user),
 ):
     async def _build():
+        from app.services.writing_dna_service import WritingDNAService
+        writing_dna = await WritingDNAService().get_style_context(current_user["id"])
+
         engine = GrammarEngine()
-        result = await engine.process(request.text, {"language": request.language})
+        result = await engine.process(request.text, {"language": request.language, "writing_dna": writing_dna})
         if result.get("status") == "success":
             return {
                 "job_id": str(uuid.uuid4()),

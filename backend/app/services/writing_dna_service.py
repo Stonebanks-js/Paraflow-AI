@@ -219,6 +219,31 @@ class WritingDNAService:
         - Structure: {analysis['structure_score']:.1f}/100
         """
 
+    async def get_style_context(self, user_id: UUID) -> Optional[str]:
+        """The cross-engine personalization entry point: fetch this user's
+        Writing DNA profile (if any) and return a ready-to-use style prompt
+        string, or None if they haven't built one yet.
+
+        This is the piece that was missing end-to-end: get_style_prompt()
+        already existed and was already wired into paraphrase_engine.py
+        and humanize_engine.py's prompt builders (both accept a
+        `writing_dna` option and fold it into the system prompt), but
+        nothing ever called this to actually fetch a user's profile and
+        pass it through -- so Writing DNA never influenced any other
+        engine despite being built for exactly that. Callers should treat
+        a None return (no profile yet, or a transient read failure) as
+        "no style preference," never as an error -- personalization is an
+        enhancement, not a requirement for the engine to run.
+        """
+        try:
+            profile = await self.get_profile(user_id)
+        except Exception as e:
+            logger.warning("writing_dna.style_context_fetch_failed", user_id=str(user_id), error=str(e))
+            return None
+        if not profile:
+            return None
+        return self.get_style_prompt(profile)
+
     def get_style_prompt(self, profile: WritingDNAProfile) -> str:
         prompts = []
 
