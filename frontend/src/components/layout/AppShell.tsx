@@ -31,10 +31,12 @@ import {
   User,
   Menu,
   X,
+  Bot,
 } from "lucide-react";
 
 const tools = [
   { name: "Dashboard", icon: Home, href: "/dashboard" },
+  { name: "Para Agent", icon: Bot, href: "/assistant", color: "text-primary" },
   { name: "Paraphraser", icon: Feather, href: "/tools/paraphraser", color: "text-blue-400" },
   { name: "Humanizer", icon: SparklesIcon, href: "/tools/humanizer", color: "text-purple-400" },
   { name: "Detector", icon: ShieldCheck, href: "/tools/detector", color: "text-green-400" },

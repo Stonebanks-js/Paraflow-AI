@@ -19,10 +19,30 @@ from app.ai.engines.grammar_engine import GrammarEngine
 from app.ai.engines.summarize_engine import SummarizeEngine
 from app.ai.engines.translate_engine import TranslateEngine
 from app.ai.engines.seo_engine import SEOEngine
+from app.services.history_service import HistoryService
+from typing import Optional
+import json
 import uuid
 
 router = APIRouter(prefix="/tools", tags=["tools"])
 health_service = HealthScoreService()
+
+
+def _extract_output_summary(result: dict) -> Optional[str]:
+    """Pull a human-readable summary out of whichever shape a given
+    engine's success result happens to use, for the history list preview."""
+    for key in ("output", "corrected_text", "summary", "translated_text", "transformed_text"):
+        val = result.get(key)
+        if isinstance(val, str) and val:
+            return val
+    for key in ("analysis", "result"):
+        val = result.get(key)
+        if val is not None:
+            try:
+                return json.dumps(val)[:2000]
+            except (TypeError, ValueError):
+                return str(val)[:2000]
+    return None
 
 
 class TransformRequest(BaseModel):
@@ -43,6 +63,7 @@ async def _run_tool(
     user_id: str,
     text: str,
     builder,
+    project_id: Optional[str] = None,
 ):
     """Common pipeline: validate, deduct, run, refund on failure."""
     import time as _time
@@ -111,9 +132,28 @@ async def _run_tool(
             result["credits_used"] = cost if deducted else 0
             _log("response_sent", engine_seconds=round(engine_seconds, 3),
                  total_seconds=round(_time.monotonic() - t_request_start, 3))
+            await HistoryService().log_job(
+                user_id=user_id,
+                tool_name=tool_name,
+                input_text=text,
+                output_summary=_extract_output_summary(result),
+                status="completed",
+                credits_used=result["credits_used"],
+                project_id=project_id,
+            )
             return result
 
         _log("engine_failed_no_charge", error=result.get("error", "unknown"))
+        await HistoryService().log_job(
+            user_id=user_id,
+            tool_name=tool_name,
+            input_text=text,
+            output_summary=None,
+            status="failed",
+            credits_used=0,
+            error_message=str(result.get("error", f"{tool_name} processing failed"))[:500],
+            project_id=project_id,
+        )
         raise HTTPException(
             status_code=500,
             detail=result.get("error", f"{tool_name} processing failed"),
@@ -122,6 +162,16 @@ async def _run_tool(
         raise
     except Exception as e:
         _log("exception_no_charge", error=str(e)[:200])
+        await HistoryService().log_job(
+            user_id=user_id,
+            tool_name=tool_name,
+            input_text=text,
+            output_summary=None,
+            status="failed",
+            credits_used=0,
+            error_message=str(e)[:500],
+            project_id=project_id,
+        )
         raise HTTPException(status_code=500, detail=f"{tool_name} failed: {str(e)[:200]}")
 
 
@@ -156,6 +206,7 @@ async def paraphrase(
         user_id=str(current_user["id"]),
         text=request.text,
         builder=_build,
+        project_id=request.project_id,
     )
     return res
 
@@ -188,6 +239,7 @@ async def humanize(
         user_id=str(current_user["id"]),
         text=request.text,
         builder=_build,
+        project_id=request.project_id,
     )
     return res
 
@@ -220,6 +272,7 @@ async def detect(
         user_id=str(current_user["id"]),
         text=request.text,
         builder=_build,
+        project_id=request.project_id,
     )
     return res
 
@@ -250,6 +303,7 @@ async def grammar_check(
         user_id=str(current_user["id"]),
         text=request.text,
         builder=_build,
+        project_id=request.project_id,
     )
     return res
 
@@ -283,6 +337,7 @@ async def summarize(
         user_id=str(current_user["id"]),
         text=request.text,
         builder=_build,
+        project_id=request.project_id,
     )
     return res
 
@@ -313,6 +368,7 @@ async def translate(
         user_id=str(current_user["id"]),
         text=request.text,
         builder=_build,
+        project_id=request.project_id,
     )
     return res
 
@@ -342,6 +398,7 @@ async def seo_optimize(
         user_id=str(current_user["id"]),
         text=request.text,
         builder=_build,
+        project_id=request.project_id,
     )
     return res
 

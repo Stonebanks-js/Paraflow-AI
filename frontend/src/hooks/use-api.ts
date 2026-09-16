@@ -12,6 +12,12 @@ import type {
   WritingDNAProfile,
   AgentStudioResponse,
   HealthScore,
+  HistoryItem,
+  HistoryDetail,
+  Project,
+  AssistantSession,
+  AssistantSessionDetail,
+  AssistantSendMessageResponse,
 } from '@/types';
 
 export function useHealthScore(text: string | null) {
@@ -151,5 +157,103 @@ export function useCredits() {
     queryKey: ['credits'],
     queryFn: () => api.get('/v1/users/credits'),
     refetchInterval: 30000,
+  });
+}
+
+export function useHistory(projectId?: string | null) {
+  return useQuery<{ items: HistoryItem[] }>({
+    queryKey: ['history', projectId ?? null],
+    queryFn: () =>
+      api.get(`/v1/history${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`),
+  });
+}
+
+export function useHistoryItem(jobId: string | null) {
+  return useQuery<HistoryDetail>({
+    queryKey: ['history', 'item', jobId],
+    queryFn: () => api.get(`/v1/history/${jobId}`),
+    enabled: !!jobId,
+  });
+}
+
+export function useDeleteHistoryItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => api.delete(`/v1/history/${jobId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['history'] }),
+  });
+}
+
+export function useProjects() {
+  return useQuery<{ items: Project[] }>({
+    queryKey: ['projects'],
+    queryFn: () => api.get('/v1/projects'),
+  });
+}
+
+export function useCreateProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.post<Project>('/v1/projects', { name }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects'] }),
+  });
+}
+
+export function useDeleteProject() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (projectId: string) => api.delete(`/v1/projects/${projectId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      queryClient.invalidateQueries({ queryKey: ['history'] });
+    },
+  });
+}
+
+export function useAssistantSessions(projectId?: string | null) {
+  return useQuery<{ items: AssistantSession[] }>({
+    queryKey: ['assistant', 'sessions', projectId ?? null],
+    queryFn: () =>
+      api.get(`/v1/assistant/sessions${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`),
+  });
+}
+
+export function useAssistantSession(sessionId: string | null) {
+  return useQuery<AssistantSessionDetail>({
+    queryKey: ['assistant', 'session', sessionId],
+    queryFn: () => api.get(`/v1/assistant/sessions/${sessionId}`),
+    enabled: !!sessionId,
+  });
+}
+
+export function useDeleteAssistantSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (sessionId: string) => api.delete(`/v1/assistant/sessions/${sessionId}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['assistant', 'sessions'] }),
+  });
+}
+
+export function useSendAssistantMessage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: {
+      sessionId: string | null;
+      content: string;
+      attachment_text?: string;
+      attachment_name?: string;
+      project_id?: string;
+    }) => {
+      const { sessionId, project_id, ...body } = data;
+      if (sessionId) {
+        return api.post<AssistantSendMessageResponse>(`/v1/assistant/sessions/${sessionId}/messages`, body);
+      }
+      const qs = project_id ? `?project_id=${encodeURIComponent(project_id)}` : '';
+      return api.post<AssistantSendMessageResponse>(`/v1/assistant/messages${qs}`, body);
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['assistant', 'sessions'] });
+      queryClient.invalidateQueries({ queryKey: ['assistant', 'session', data.session_id] });
+    },
   });
 }

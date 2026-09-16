@@ -7,8 +7,9 @@ import { motion } from "framer-motion";
 import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui";
 import { Button, Badge } from "@/components/ui";
+import { AssistantNudge } from "@/components/features/assistant/AssistantNudge";
 import { useUserStore } from "@/stores";
-import { useCredits } from "@/hooks/use-api";
+import { useCredits, useHistory } from "@/hooks/use-api";
 import { getSession, mapSupabaseUserToAppUser, isSupabaseConfigured } from "@/lib/auth-service";
 import { Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -168,6 +169,10 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, []);
+
+  const recentHistory = useHistory();
+  const recentItems = (recentHistory.data?.items ?? []).slice(0, 5);
+  const toolById = Object.fromEntries(tools.map((t) => [t.id, t]));
 
   const creditsBalance = creditsQuery.data?.balance ?? 0;
   const planTier = creditsQuery.data?.tier ?? "Free";
@@ -511,27 +516,57 @@ export default function DashboardPage() {
               View all <ChevronRight className="w-4 h-4" />
             </Link>
           </div>
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
-                  <Clock className="w-8 h-8 text-muted-foreground" />
+          {recentItems.length === 0 ? (
+            <Card>
+              <CardContent className="p-6">
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <div className="w-16 h-16 rounded-full bg-muted/50 flex items-center justify-center mb-4">
+                    <Clock className="w-8 h-8 text-muted-foreground" />
+                  </div>
+                  <h3 className="font-medium mb-1">No recent activity</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Start using the tools to see your activity here
+                  </p>
+                  <Link href="/tools/paraphraser">
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <Play className="w-4 h-4" />
+                      Try Paraphraser
+                    </Button>
+                  </Link>
                 </div>
-                <h3 className="font-medium mb-1">No recent activity</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Start using the tools to see your activity here
-                </p>
-                <Link href="/tools/paraphraser">
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <Play className="w-4 h-4" />
-                    Try Paraphraser
-                  </Button>
-                </Link>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="p-2">
+                {recentItems.map((item) => {
+                  const toolMeta = toolById[item.tool_name];
+                  const Icon = toolMeta?.icon || FileText;
+                  return (
+                    <Link key={item.id} href="/history">
+                      <div className="flex items-center gap-3 px-3 py-3 rounded-xl hover:bg-accent transition-colors">
+                        <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0", toolMeta?.bg || "bg-muted/60")}>
+                          <Icon className={cn("w-4 h-4", toolMeta?.color || "text-muted-foreground")} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{item.title || toolMeta?.name || item.tool_name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {new Date(item.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                          </p>
+                        </div>
+                        <Badge variant={item.status === "completed" ? "success" : "destructive"} className="text-[10px]">
+                          {item.status === "completed" ? "Done" : "Failed"}
+                        </Badge>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
         </motion.div>
       </div>
+      <AssistantNudge />
     </AppShell>
   );
 }

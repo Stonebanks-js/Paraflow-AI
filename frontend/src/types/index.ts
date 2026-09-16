@@ -181,3 +181,55 @@ export interface Tool {
   icon: string;
   color: string;
 }
+
+export interface HistoryItem {
+  id: string;
+  tool_name: string;
+  title: string | null;
+  status: string;
+  credits_used?: number;
+  created_at: string;
+  project_id: string | null;
+}
+
+export interface HistoryDetail extends HistoryItem {
+  input_data?: { text?: string } | null;
+  output_data?: { summary?: string } | null;
+  error_message?: string | null;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssistantMessage {
+  id?: string;
+  role: 'user' | 'assistant';
+  content: string;
+  attachment_name?: string | null;
+  suggested_engine?: string | null;
+  suggested_engine_url?: string | null;
+  created_at: string;
+}
+
+export interface AssistantSession {
+  id: string;
+  title: string | null;
+  project_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssistantSessionDetail extends AssistantSession {
+  messages: AssistantMessage[];
+}
+
+export interface AssistantSendMessageResponse {
+  session_id: string;
+  title: string | null;
+  user_message: AssistantMessage;
+  assistant_message: AssistantMessage;
+}

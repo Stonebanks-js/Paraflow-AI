@@ -8,6 +8,7 @@ class ParaphraseRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
     mode: Literal["standard", "fluency", "formal", "academic", "creative", "simple", "expand", "shorten"] = "standard"
     strength: int = Field(default=50, ge=0, le=100)
+    project_id: Optional[str] = None
 
 
 class ParaphraseResponse(BaseModel):
@@ -22,6 +23,7 @@ class ParaphraseResponse(BaseModel):
 class HumanizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
     target_pass_rate: float = Field(default=0.85, ge=0, le=1)
+    project_id: Optional[str] = None
 
 
 class HumanizeResponse(BaseModel):
@@ -34,6 +36,7 @@ class HumanizeResponse(BaseModel):
 
 class DetectRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
+    project_id: Optional[str] = None
 
 
 class DetectionResult(BaseModel):
@@ -54,6 +57,7 @@ class DetectResponse(BaseModel):
 class GrammarRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
     language: Optional[str] = "en"
+    project_id: Optional[str] = None
 
 
 class GrammarIssue(BaseModel):
@@ -78,6 +82,7 @@ class SummarizeRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=20000)
     style: Literal["concise", "detailed", "bullet_points", "executive"] = "concise"
     max_length: Optional[int] = 200
+    project_id: Optional[str] = None
 
 
 class SummarizeResponse(BaseModel):
@@ -93,6 +98,7 @@ class TranslateRequest(BaseModel):
     source_lang: str = "en"
     target_lang: str
     preserve_tone: bool = True
+    project_id: Optional[str] = None
 
 
 class TranslateResponse(BaseModel):
@@ -125,6 +131,7 @@ class SEORequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=10000)
     target_keywords: list[str]
     content_type: Optional[str] = "blog"
+    project_id: Optional[str] = None
 
 
 class SEOAnalysis(BaseModel):
