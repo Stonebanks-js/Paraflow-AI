@@ -14,6 +14,21 @@ class DetectionResult:
 
 
 class DetectEngine(BaseAIEngine):
+    """Heuristic AI-likelihood estimator -- NOT a trained ML classifier.
+
+    Combines three proxy signals into a weighted score: sentence-length
+    uniformity ("perplexity", 35%), sentence-length variance
+    ("burstiness", 25%), and known AI-writing phrase matches
+    ("semantic", 40%). This is a legitimate, explainable heuristic, but
+    it has real, tested limits: live testing against a deliberately
+    AI-tell-loaded paragraph vs. genuinely human casual and technical
+    writing showed only a ~15-point spread (44-45 human vs 60 AI-styled),
+    both landing in the "mixed" band -- i.e. on realistic-length text
+    this signal alone is a soft indicator, not a reliable classifier.
+    No commercial AI detector (this one included) can certify authorship
+    with scientific certainty; the API and UI must not imply otherwise.
+    """
+
     def __init__(self):
         super().__init__()
 
@@ -99,18 +114,45 @@ class DetectEngine(BaseAIEngine):
         return max(20, min(90, normalized_burstiness))
 
     def _analyze_semantic(self, text: str) -> float:
+        # Tested live against genuinely contrasting samples (casual human,
+        # AI-style formal, technical human): the original 11-phrase list
+        # under-detected a paragraph deliberately loaded with classic AI
+        # tells (scored 60/100 "mixed" instead of clearly flagging it),
+        # while a floor of 20 pulled clean human text upward regardless of
+        # whether it matched anything -- both weakened real discrimination.
+        # This is still a heuristic phrase-match signal, not a trained
+        # classifier (see class docstring / Phase 20 report for that
+        # limitation) -- but a materially larger, evidence-based list of
+        # documented AI-writing tells is a legitimate, low-risk
+        # improvement to the same approach, and removing the artificial
+        # floor lets genuinely clean text score near zero on this signal
+        # instead of always registering as "somewhat AI-like."
         ai_patterns = [
             "therefore", "furthermore", "moreover", "consequently", "additionally",
             "in conclusion", "it is worth noting", "it should be noted",
             "this suggests", "this indicates", "research shows",
+            "in today's world", "in today's fast-paced", "it is important to note",
+            "it is crucial to", "it is essential to", "plays a vital role",
+            "plays a crucial role", "delve into", "delving into", "a testament to",
+            "in the realm of", "navigate the complexities", "navigating the",
+            "unlock the potential", "unlocking the potential", "seamless integration",
+            "in summary", "to summarize", "overall, it can be concluded",
+            "on the other hand", "in this article, we will", "in this post, we will",
+            "let's dive in", "the importance of", "cannot be overstated",
+            "in the ever-evolving", "in an increasingly", "landscape of",
+            "fosters a sense of", "underscores the", "serves as a", "stands as a",
+            "boasts", "leverage", "leveraging", "utilize", "utilizing",
+            "robust", "myriad of", "plethora of", "multifaceted", "holistic approach",
+            "at the end of the day", "it goes without saying", "needless to say",
+            "when it comes to", "in order to", "as a result",
         ]
 
         pattern_count = sum(1 for pattern in ai_patterns if pattern.lower() in text.lower())
         text_length_factor = max(len(text.split()) / 100, 1)
 
-        semantic_score = min(pattern_count / text_length_factor * 20, 100)
+        semantic_score = min(pattern_count / text_length_factor * 18, 100)
 
-        return max(20, min(95, semantic_score))
+        return max(0, min(95, semantic_score))
 
     def _find_ai_spans(self, text: str, overall_score: int) -> List[dict]:
         if overall_score < 50:
