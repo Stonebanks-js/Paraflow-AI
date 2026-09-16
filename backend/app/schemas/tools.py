@@ -131,6 +131,11 @@ class SEOAnalysis(BaseModel):
     title_quality: float
     meta_quality: Optional[float] = None
     suggestions: list[str]
+    meta_description_suggestion: Optional[str] = None
+    heading_structure: Optional[dict] = None
+    keyword_in_introduction: Optional[bool] = None
+    word_count: Optional[int] = None
+    semantic_keyword_suggestions: list[str] = []
 
 
 class SEOResponse(BaseModel):

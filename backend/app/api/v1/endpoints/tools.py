@@ -258,10 +258,14 @@ async def summarize(
     current_user = Depends(get_current_user),
 ):
     async def _build():
+        from app.services.writing_dna_service import WritingDNAService
+        writing_dna = await WritingDNAService().get_style_context(current_user["id"])
+
         engine = SummarizeEngine()
         result = await engine.process(request.text, {
             "style": request.style,
             "max_length": request.max_length,
+            "writing_dna": writing_dna,
         })
         if result.get("status") == "success":
             return {

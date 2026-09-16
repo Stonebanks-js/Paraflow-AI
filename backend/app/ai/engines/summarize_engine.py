@@ -33,8 +33,9 @@ class SummarizeEngine(BaseAIEngine):
         # a genuine compression, while still respecting a smaller
         # user-requested length.
         target_length = self._compute_target_length(style, max_length, input_word_count)
+        writing_dna = options.get("writing_dna") if options else None
 
-        system_prompt = self._build_system_prompt(style, target_length)
+        system_prompt = self._build_system_prompt(style, target_length, writing_dna)
 
         result = generate_dict(
             system_prompt=system_prompt,
@@ -90,7 +91,7 @@ class SummarizeEngine(BaseAIEngine):
             word_count += s_words
         return " ".join(result) if result else text[:max_length * 5]
 
-    def _build_system_prompt(self, style: str, target_length: int) -> str:
+    def _build_system_prompt(self, style: str, target_length: int, writing_dna: Optional[str] = None) -> str:
         prompts = {
             "concise": f"Summarize the following text in approximately {target_length} words. Capture the key points concisely. Return ONLY the summary text with no explanations, no labels, no markdown.",
             "detailed": f"Provide a detailed summary in approximately {target_length} words, covering all important aspects. Return ONLY the summary text with no explanations, no labels, no markdown.",
@@ -104,12 +105,15 @@ class SummarizeEngine(BaseAIEngine):
         # fabricating a number or claim that isn't in the source is a
         # serious, well-documented LLM failure mode worth stating
         # explicitly rather than assuming the model won't do it.
-        return base + (
+        base += (
             " CRITICAL: Only include information that is actually present in the source text. "
             "Never add facts, numbers, or claims that are not explicitly stated in the original. "
             "If the source is ambiguous or lacks detail, keep the summary equally general rather "
             "than inventing specifics."
         )
+        if writing_dna:
+            base += f"\n\nMatch this writing style in how the summary is phrased: {writing_dna}"
+        return base
 
     def _extract_key_points(self, summary: str) -> list:
         """Extract bullet points from the summary if formatted with '-' prefix,
