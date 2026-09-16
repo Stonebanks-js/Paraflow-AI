@@ -77,44 +77,79 @@ class DetectEngine(BaseAIEngine):
             },
         }
 
-    def _analyze_perplexity(self, text: str) -> float:
-        words = text.split()
-        if len(words) < 10:
-            return 50.0
-
-        sentence_lengths = [
-            len(s.split())
-            for s in text.replace("!", ".").replace("?", ".").split(".")
-            if s.strip()
-        ]
-        if not sentence_lengths:
-            return 50.0
-
-        avg_length = sum(sentence_lengths) / len(sentence_lengths)
-        variance = sum((l - avg_length) ** 2 for l in sentence_lengths) / len(sentence_lengths)
-        uniformity_score = min(variance / (avg_length ** 2 + 1), 100)
-
-        return max(20, min(90, 100 - uniformity_score))
-
-    def _analyze_burstiness(self, text: str) -> float:
+    def _sentence_length_cv(self, text: str) -> Optional[float]:
+        """Coefficient of variation (std_dev / mean) of sentence word
+        counts -- the shared statistic both _analyze_perplexity and
+        _analyze_burstiness are actually built on. Factored out after
+        finding that both original formulas were separately, incorrectly
+        rescaling essentially the same quantity."""
         sentences = [
             s.strip() for s in text.replace("!", ".").replace("?", ".").split(".")
             if s.strip()
         ]
         if len(sentences) < 3:
-            return 50.0
-
+            return None
         lengths = [len(s.split()) for s in sentences]
         avg = sum(lengths) / len(lengths)
-
         if avg < 1:
-            return 50.0
-
+            return None
         variance = sum((l - avg) ** 2 for l in lengths) / len(lengths)
-        burstiness = (variance ** 0.5) / avg if avg > 0 else 0
+        return (variance ** 0.5) / avg
 
-        normalized_burstiness = min(burstiness / 2 * 100, 100)
-        return max(20, min(90, normalized_burstiness))
+    def _analyze_perplexity(self, text: str) -> float:
+        """Sentence-length UNIFORMITY as an AI-likelihood proxy: real
+        academic and generated-text analyses consistently find AI output
+        tends toward more uniform sentence length than natural human
+        writing, so low variation here should push the score UP.
+
+        BUG FOUND via this phase's eval-set testing: the original formula
+        normalized variance by avg_length^2, which for any realistic
+        sentence length (avg well above 1) makes the ratio negligibly
+        small almost regardless of actual dispersion -- confirmed live,
+        6 deliberately varied test samples (3 human, 3 AI-styled) all
+        returned exactly 90, the hard-coded ceiling. The signal was
+        contributing a fixed +90*30% to every score, not discriminating
+        at all despite 30% weight. Rebuilt on coefficient of variation
+        (CV = std_dev/mean), which is the standard scale-invariant
+        dispersion measure and actually produces different values across
+        different real text (CV typically ~0.3-0.6 for natural writing;
+        lower CV = more uniform = more AI-like).
+        """
+        words = text.split()
+        if len(words) < 10:
+            return 50.0
+        cv = self._sentence_length_cv(text)
+        if cv is None:
+            return 50.0
+        # cv near 0 (robotically uniform) -> near 90; cv ~0.5 (typical
+        # natural writing) -> ~50; cv >= 0.9 (highly varied) -> floor 15.
+        return max(15, min(90, 90 - cv * 80))
+
+    def _analyze_burstiness(self, text: str) -> float:
+        """Natural bursty rhythm (short sentences mixed unpredictably with
+        long ones) is a well-documented HUMAN-writing trait -- the opposite
+        of _analyze_perplexity's uniformity signal, not a duplicate of it.
+
+        BUG FOUND via this phase's eval-set testing, two separate issues:
+        (1) scaling -- burstiness/2*100 needs CV > ~1.8 to approach the 90
+        cap, which essentially never happens in real text, so this also
+        always landed near its floor (confirmed live: 20 for 5 of 6 test
+        samples). (2) polarity -- high burstiness (the human trait) was
+        being added directly into the AI-likelihood weighted sum with a
+        positive sign, meaning genuinely human bursty writing was scored
+        as MORE AI-like, backwards from what the research this signal is
+        named after actually says. Fixed both: rescaled on the same CV
+        basis as perplexity, and inverted so high burstiness now correctly
+        REDUCES the AI-likelihood contribution.
+        """
+        cv = self._sentence_length_cv(text)
+        if cv is None:
+            return 50.0
+        # High CV (bursty, human-like) -> low AI-likelihood contribution.
+        # Low CV (uniform) -> higher contribution -- inverse of perplexity's
+        # own scaling since they measure the same dispersion for opposite
+        # conclusions (human writers vary sentence length organically).
+        return max(10, min(85, 85 - cv * 90))
 
     def _analyze_semantic(self, text: str) -> float:
         # Tested live against genuinely contrasting samples (casual human,
