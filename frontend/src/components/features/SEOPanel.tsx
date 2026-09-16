@@ -13,7 +13,7 @@ import { cn, countWords } from "@/lib/utils";
 import {
   Search, Loader2, AlertCircle, RotateCcw, Brain, CheckCircle2, Clock, Coins,
   Download, ChevronRight, TrendingUp, TrendingDown, Minus, Eye, Lightbulb,
-  FileText, Hash, AlignLeft, Target, Zap, Star, MessageSquare, Send, Timer
+  FileText, Hash, AlignLeft, Target, Star, MessageSquare, Send, Timer
 } from "lucide-react";
 
 const contentTypes = [
@@ -350,6 +350,68 @@ export function SEOPanel() {
                   </div>
                 </div>
 
+                {/* Meta Description */}
+                {analysis.meta_description_suggestion && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-medium">Suggested Meta Description</h4>
+                      <span className="text-xs text-muted-foreground">
+                        {analysis.meta_description_suggestion.length} chars
+                      </span>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/50 text-sm flex items-start justify-between gap-2">
+                      <p className="flex-1">{analysis.meta_description_suggestion}</p>
+                      <CopyButton text={analysis.meta_description_suggestion} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Real structural checks, computed from this exact input --
+                    not generic advice shown regardless of what was analyzed. */}
+                <div className="space-y-3">
+                  <h4 className="text-sm font-medium">Structure Checks</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className={cn(
+                      "flex items-start gap-2 p-3 rounded-lg border",
+                      analysis.keyword_in_introduction
+                        ? "bg-green-500/10 border-green-500/20"
+                        : "bg-yellow-500/10 border-yellow-500/20"
+                    )}>
+                      {analysis.keyword_in_introduction
+                        ? <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                        : <AlertCircle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />}
+                      <p className="text-sm">
+                        {analysis.keyword_in_introduction
+                          ? "Target keyword found in the first 150 words"
+                          : "Target keyword missing from the first 150 words"}
+                      </p>
+                    </div>
+                    {analysis.heading_structure && (
+                      <div className={cn(
+                        "flex items-start gap-2 p-3 rounded-lg border",
+                        analysis.heading_structure.needed
+                          ? "bg-yellow-500/10 border-yellow-500/20"
+                          : "bg-green-500/10 border-green-500/20"
+                      )}>
+                        {analysis.heading_structure.needed
+                          ? <AlertCircle className="w-4 h-4 text-yellow-500 mt-0.5 shrink-0" />
+                          : <CheckCircle2 className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />}
+                        <p className="text-sm">
+                          {analysis.heading_structure.needed
+                            ? "No headings detected in long content"
+                            : `${analysis.heading_structure.count} heading(s) detected`}
+                        </p>
+                      </div>
+                    )}
+                    {typeof analysis.word_count === "number" && (
+                      <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/50 border border-border/50">
+                        <FileText className="w-4 h-4 text-muted-foreground mt-0.5 shrink-0" />
+                        <p className="text-sm">{analysis.word_count} words analyzed</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
                 {/* Quick Recommendations */}
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium">Quick Wins</h4>
@@ -456,7 +518,11 @@ export function SEOPanel() {
         </Card>
       </div>
 
-      {/* AI Insights Panel */}
+      {/* SEO Insights Panel -- every item below is computed from this
+          specific input (semantic_keyword_suggestions is a real
+          word-frequency analysis of the actual text, not a static list),
+          replacing what was previously always-the-same generic advice
+          shown regardless of what was analyzed. */}
       {analysis && (
         <Card className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-yellow-500/20">
           <CardHeader>
@@ -466,41 +532,35 @@ export function SEOPanel() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <h4 className="text-sm font-medium flex items-center gap-2">
                   <Lightbulb className="w-4 h-4 text-yellow-500" />
-                  Keyword Opportunities
+                  Related Terms Already In Your Content
                 </h4>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>• Use primary keyword in first 100 words</li>
-                  <li>• Include keywords in headings (H2, H3)</li>
-                  <li>• Add internal and external links</li>
-                  <li>• Optimize meta description</li>
-                </ul>
-              </div>
-              <div className="space-y-3">
-                <h4 className="text-sm font-medium flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-green-500" />
-                  Content Tips
-                </h4>
-                <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>• Aim for 300+ words minimum</li>
-                  <li>• Use short paragraphs (3-4 sentences)</li>
-                  <li>• Add relevant images with alt text</li>
-                  <li>• Include a clear call-to-action</li>
-                </ul>
+                {analysis.semantic_keyword_suggestions && analysis.semantic_keyword_suggestions.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {analysis.semantic_keyword_suggestions.map((term) => (
+                      <span key={term} className="px-2 py-1 rounded-lg bg-muted text-xs font-medium">{term}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No strongly repeated related terms found -- consider whether the content covers the topic in enough depth.
+                  </p>
+                )}
               </div>
               <div className="space-y-3">
                 <h4 className="text-sm font-medium flex items-center gap-2">
                   <Star className="w-4 h-4 text-orange-500" />
-                  Best Practices
+                  All Recommendations
                 </h4>
                 <ul className="space-y-2 text-sm text-muted-foreground">
-                  <li>• Maintain keyword density of 1-3%</li>
-                  <li>• Write compelling title (50-60 chars)</li>
-                  <li>• Use bullet points for readability</li>
-                  <li>• Update content regularly</li>
+                  {analysis.suggestions.length > 0 ? (
+                    analysis.suggestions.map((s, i) => <li key={i}>• {s}</li>)
+                  ) : (
+                    <li>No issues found -- this content checks out against every signal analyzed.</li>
+                  )}
                 </ul>
               </div>
             </div>

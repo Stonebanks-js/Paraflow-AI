@@ -95,6 +95,11 @@ export interface SEOAnalysis {
   title_quality: number;
   meta_quality?: number;
   suggestions: string[];
+  meta_description_suggestion?: string;
+  heading_structure?: { count: number; has_headings: boolean; needed: boolean };
+  keyword_in_introduction?: boolean;
+  word_count?: number;
+  semantic_keyword_suggestions?: string[];
 }
 
 export interface SEOResponse extends ToolJob {
