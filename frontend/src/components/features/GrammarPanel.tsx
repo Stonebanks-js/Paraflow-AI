@@ -440,12 +440,25 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
             {/* Overview Tab */}
             {activeTab === "overview" && (
               <div className="space-y-6">
-                {/* Score Dashboard -- only shown after a real analysis has
-                    completed. Before that, issues/scores are computed from
-                    an empty/undefined result, which produces a trivial
-                    100/100/100/100 that looks like a real "perfect score"
-                    assessment rather than "nothing has been analyzed yet". */}
-                {outputText ? (
+                {/* Score Dashboard -- only shown after a real, Gemini-backed
+                    analysis has completed. Before that, issues/scores are
+                    computed from an empty/undefined result, which produces
+                    a trivial 100/100/100/100 that looks like a real
+                    "perfect score" assessment rather than "nothing has been
+                    analyzed yet".
+
+                    BUG FOUND live: when checked_by is "rule_based_only"
+                    (Gemini unreachable, only the ~8-word local spellcheck
+                    ran), this dashboard still rendered four confident green
+                    100/100 circles directly below the honest yellow
+                    disclaimer saying the check was incomplete -- for input
+                    with obvious, uncaught grammar errors ("I has went",
+                    "He dont"). A user skimming past the small banner would
+                    see nothing but "100/100" and reasonably conclude the
+                    text was verified clean. The rule-based path's near-
+                    empty issue list isn't a real quality signal, so scores
+                    derived from it shouldn't be presented as one either. */}
+                {outputText && grammarMutation.data?.checked_by !== "rule_based_only" ? (
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div className="flex flex-col items-center p-4 rounded-lg bg-muted/50">
                       <ScoreGauge score={overallScore} size="md" showLabel={false} />
@@ -463,6 +476,10 @@ ${issues.map((issue, i) => `${i + 1}. [${issue.severity.toUpperCase()}] ${issue.
                       <ScoreGauge score={scores.engagement} size="md" showLabel={false} />
                       <span className="text-sm font-medium mt-2">Engagement</span>
                     </div>
+                  </div>
+                ) : outputText ? (
+                  <div className="text-center py-8 text-muted-foreground border border-dashed border-yellow-500/30 rounded-lg">
+                    <p className="text-sm">Scores aren&apos;t available -- only a basic check ran. Try again for a full analysis.</p>
                   </div>
                 ) : (
                   <div className="text-center py-8 text-muted-foreground border border-dashed rounded-lg">
