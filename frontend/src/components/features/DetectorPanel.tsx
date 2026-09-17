@@ -88,7 +88,14 @@ export function DetectorPanel() {
     setChatMessage("");
   };
 
-  const result = detectMutation.data?.result;
+  // BUG FOUND live (same class as Translator's stale-success-banner bug):
+  // useMutation's `data` is NOT cleared when a new mutate call fails --
+  // it just keeps the last successful value. Gating every result display
+  // on `result` alone meant a failed re-detection still showed the
+  // PREVIOUS successful detection as if it were current. `isSuccess`
+  // correctly flips false the moment a new attempt starts, so requiring
+  // it here fixes every usage of `result` below at once.
+  const result = detectMutation.isSuccess ? detectMutation.data?.result : undefined;
 
   const stats = useMemo(() => ({
     words: countWords(inputText),

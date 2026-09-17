@@ -108,6 +108,11 @@ export function ParaphraserPanel() {
         message = `Network error: Cannot reach API server. API_BASE = ${(window as unknown as { __API_URL__?: string }).__API_URL__ || 'unknown'}. Check NEXT_PUBLIC_API_URL on Vercel.`;
       }
       setError(message);
+      // Same stale-success-banner bug found and fixed in TranslatorPanel:
+      // the result card is gated on outputText alone, which otherwise
+      // keeps showing a previous successful result as "current" after a
+      // later attempt fails.
+      setLocalOutputText("");
     } finally {
       setIsProcessing(false);
     }

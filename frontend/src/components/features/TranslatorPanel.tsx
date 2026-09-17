@@ -122,6 +122,13 @@ export function TranslatorPanel() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Translation failed";
       setError(message);
+      // BUG FOUND live: the "Translation Complete" banner and result panel
+      // were gated only on outputText being non-empty, which stayed set to
+      // the PREVIOUS successful translation after a later attempt failed --
+      // so a failed Spanish translation still showed "Translation Complete,
+      // Spanish" next to leftover French text from an earlier success.
+      // Clearing it here means a failure always shows as a failure.
+      setLocalOutputText("");
     } finally {
       setIsProcessing(false);
     }

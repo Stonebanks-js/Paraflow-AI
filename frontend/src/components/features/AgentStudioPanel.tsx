@@ -64,12 +64,17 @@ export function AgentStudioPanel() {
   };
 
   const iterations = agentMutation.data?.iterations || [];
+  // BUG FOUND live (same class as Translator's stale-success-banner bug):
+  // useMutation's `data` is NOT cleared when a new mutate call fails --
+  // it just keeps the last successful value, so a failed re-run would
+  // still show the PREVIOUS session's results as if it were current.
+  const hasResult = agentMutation.isSuccess && !!agentMutation.data;
 
   return (
     <div className="space-y-6">
       {/* Session Complete Banner */}
       <AnimatePresence>
-        {agentMutation.data && (
+        {hasResult && (
           <motion.div
             initial={{ opacity: 0, y: -10, height: 0 }}
             animate={{ opacity: 1, y: 0, height: "auto" }}
@@ -192,7 +197,7 @@ export function AgentStudioPanel() {
       </motion.div>
 
       <AnimatePresence>
-        {agentMutation.data && (
+        {hasResult && (
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}

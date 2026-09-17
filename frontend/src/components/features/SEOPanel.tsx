@@ -101,7 +101,13 @@ export function SEOPanel() {
     clearConversation(toolId);
   };
 
-  const analysis = seoMutation.data?.analysis;
+  // BUG FOUND live (same class as Translator's stale-success-banner bug):
+  // useMutation's `data` is NOT cleared when a new mutate call fails --
+  // it just keeps the last successful value. Gating every result display
+  // on `analysis` alone meant a failed re-run still showed the PREVIOUS
+  // successful analysis as if it were current. `isSuccess` correctly
+  // flips false the moment a new attempt starts.
+  const analysis = seoMutation.isSuccess ? seoMutation.data?.analysis : undefined;
 
   const stats = useMemo(() => ({
     words: countWords(inputText),

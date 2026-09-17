@@ -91,6 +91,10 @@ export function GrammarPanel() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Grammar check failed";
       setError(message);
+      // Same stale-success-banner bug found and fixed in TranslatorPanel:
+      // avoid showing a previous successful result as "current" after a
+      // later attempt fails.
+      setLocalOutputText("");
     } finally {
       setIsProcessing(false);
     }
