@@ -181,14 +181,35 @@ class SEOEngine(BaseAIEngine):
         """Real heading-structure detection: markdown-style (#, ##) or a
         short standalone line followed by a longer paragraph (a common
         plain-text heading pattern). Long content with zero detected
-        headings is a genuine, checkable structure problem for SEO."""
+        headings is a genuine, checkable structure problem for SEO.
+
+        BUG FOUND while auditing this engine: the docstring above already
+        claimed the plain-text pattern was detected, but the implementation
+        only ever checked markdown '#' syntax -- content pasted from a CMS
+        or doc editor (real section structure, no markdown) was always
+        scored as having zero headings regardless of actual structure.
+        """
         lines = text.split("\n")
         markdown_headings = [l for l in lines if re.match(r'^#{1,6}\s+\S', l.strip())]
+
+        plain_headings = []
+        for i in range(len(lines) - 1):
+            line = lines[i].strip()
+            next_line = lines[i + 1].strip()
+            if (
+                line
+                and len(line) <= 60
+                and not line.endswith((".", "!", "?", ","))
+                and len(next_line.split()) >= 6
+            ):
+                plain_headings.append(line)
+
+        total_count = len(markdown_headings) + len(plain_headings)
         word_count = len(text.split())
 
-        has_headings = len(markdown_headings) > 0
+        has_headings = total_count > 0
         return {
-            "count": len(markdown_headings),
+            "count": total_count,
             "has_headings": has_headings,
             "needed": word_count > 400 and not has_headings,
         }
