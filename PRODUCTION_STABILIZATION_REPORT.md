@@ -2715,3 +2715,101 @@ No local FastAPI runtime was available with real Supabase/Gemini credentials, so
 ## 7. Final status
 
 History, Projects, and Para Agent are live in production and verified through real browser interaction against the deployed app, not assumed from code review. The one genuine limitation surfaced during testing -- Gemini's rate limit intermittently blocking Para Agent replies -- is the same pre-existing, already-reported production concern from Phase 22, not a defect introduced here, and Para Agent's honest-error handling means it degrades the same way every other engine does: a clear message, zero credits charged, nothing fabricated.
+
+# Phase 24 - Final Production Engine, AI Chat, and Timeout/Rate-Limit Stabilization
+
+**Date:** 2026-09-17
+**Status:** Root cause of the reported "too many requests"/timeout problem found and fixed (not papered over with a bigger timeout). Real correctness/honesty bugs found and fixed in Translator, Grammar, SEO, document upload, and -- discovered mid-session while retesting -- a systemic frontend bug affecting all 8 engine panels. This phase was explicitly instructed not to stop at the first fix; it kept going until Gemini's own rate limit became the actual blocker, at which point retries stopped rather than burning quota, and remaining live-verification gaps are listed honestly below.
+
+## 0. The actual root cause of "too many requests" / timeout reports
+
+Traced the full request lifecycle per the instruction to find whether this was "one click -> one request -> Gemini genuinely slow" or "one click -> a retry storm." It was the second one, entirely server-side (never visible in the browser's Network tab, which is why it hadn't been caught by UI inspection alone):
+
+- `base.py`'s `generate()` hardcoded `retriable=True` for **every** exception type, including a Gemini 429.
+- `factory.py`'s retry loop had **zero delay** between attempts.
+
+Combined: a single rate-limited user click could silently become **two real Gemini API calls fired back-to-back** into the exact same still-throttled window -- doubling load at the worst possible moment (when the key is already over its limit) instead of backing off, and adding up to another full 10s timeout's worth of latency before the user ever saw an error.
+
+**Fix:** Gemini errors now carry their own retriability (`GeminiAPIError`, in `gemini.py`) -- a 429 or 5xx is genuinely worth one retry, but a 4xx client error or an empty-response failure will just fail identically again, so it isn't retried. `base.py` respects that classification instead of assuming everything is retriable. `factory.py` now waits a short bounded backoff (1.5-3s) before a retry instead of firing immediately. Worst-case total latency (10s + backoff + 10s ~= 21.5s) stays safely under the frontend's 30s abort timeout.
+
+**Frontend audited separately (Phase 4 of the instructions) and found clean:** every one of the 8 engine panels' `useEffect` hooks only syncs local Zustand state -- none trigger a mutation. Submit buttons are correctly `disabled` while a request is in flight. This was a 100% backend-side bug.
+
+**Important finding from today's live testing:** the rate limit is currently severe, not merely intermittent. Every translator attempt but one (5 of 6), the grammar check, and all 3 chat attempts this session hit a genuine 429 from Gemini. Phase 22/23 described this as "occasional success surrounded by frequent failures" -- today's pattern was closer to "occasional success surrounded by *near-constant* failures." This is squarely a Gemini API quota/billing issue on the user's account, not something further code changes here can fix, and it materially limited how much of this session's live verification could be completed (see the UNVERIFIED items below).
+
+## 1. Translator: output-language validation added
+
+The engine previously trusted Gemini's HTTP success as proof a translation actually happened, with no check that the OUTPUT was genuinely in the target language -- exactly how the earlier documented bug (untranslated English returned as a "successful" translation) could recur silently.
+
+**Fix:** added a `langdetect`-based validation gate. While calibrating it, found and fixed a real problem with the approach itself: `langdetect` reseeds itself randomly by default, so identical input produced confidence scores that varied between 0.71 and 0.9999 across repeated runs -- unacceptable for something deciding success/failure. Pinned `DetectorFactory.seed = 0` for determinism, then calibrated the confidence threshold (0.6) against a real reproduction of the original bug (untranslated English scored 0.71 confidence) versus several genuine short translations (all >=0.999) -- comfortable separation. Also strengthened the prompt to explicitly preserve numbers, dates, names, URLs, and technical terms.
+
+**Live verification:** English -> French ("John Miller met his colleague on March 3rd to discuss the new project budget of 4500 dollars.") succeeded cleanly in 18.0s: *"John Miller a rencontré son collègue le 3 mars pour discuter du budget du nouveau projet de 4500 dollars."* -- genuinely French, name preserved, date correctly localized, number preserved exactly. **PASS.**
+
+Spanish, German (x2), and Hindi attempts all hit genuine Gemini 429s -- confirmed via a direct backend request (bypassing the UI) that the *actual* response was `HTTP 500 {"detail": "Translation to Spanish failed: Gemini error: 429 Too Many Requests..."}`, i.e. the backend behaved completely honestly each time and charged zero credits. **UNVERIFIED for those languages this session** -- not a code defect, blocked entirely by the live rate limit.
+
+## 2. Grammar: real itemized issues, and a live-discovered honesty gap fixed
+
+Previously a genuine Gemini correction was represented as one synthetic "Grammar and phrasing improvements applied" summary rather than real itemized issues. Gemini is now asked for structured JSON (`type`/`original`/`correction`/`explanation`/`severity` per issue) and the engine parses it, with a graceful fallback to the old summary form if the model doesn't comply with the JSON shape (stripping common ` ```json ` fences first). Unit-verified against 4 cases (clean JSON, fenced JSON, unparseable output, correct-text-with-no-issues).
+
+**Live-discovered bug, found while retesting:** input `"I has went to the market yesterday. He dont like it there."` hit the Gemini rate limit and correctly fell back to the honest rule-based-only path, which correctly showed a yellow disclaimer: *"The AI grammar service was unreachable, so only a basic rule-based spelling check ran... may miss real issues."* **But directly below that disclaimer**, the score dashboard still rendered four bright green **100/100** circles (Overall/Grammar/Clarity/Engagement) for text with two obvious, uncaught errors -- because those scores are derived from the (empty) rule-based issue list, and the rule-based scanner's ~8-word list doesn't catch subject-verb agreement or missing apostrophes. A user skimming past the small banner would see nothing but confident 100s. **Fixed:** scores are now suppressed (replaced with an explicit "not available -- only a basic check ran" message) whenever `checked_by === "rule_based_only"`, matching the honesty already established for the disclaimer text but never extended to the scores themselves. This is exactly the class of bug the instructions asked to hunt for ("never show success UI for a failed/degraded check") and it was found by testing the real failure path live, not by reading code alone.
+
+## 3. SEO: dead-code bug fixed
+
+Auditing `_analyze_headings()` found its own docstring already claimed it detected plain-text heading patterns (a short standalone line followed by a longer paragraph, common in content pasted from a CMS with no markdown), but the implementation only ever matched markdown `#` syntax. Content with real section structure but no markdown was always scored as having zero headings. Implemented the plain-text detection the docstring described; unit-verified across markdown, plain-text-heading, and long-no-heading cases -- all three now score correctly. SEO makes no Gemini calls at all (pure heuristic), so it was unaffected by today's rate limiting.
+
+## 4. Document upload: real PDF/DOCX support, and a document-context bug fixed
+
+Document attachment was previously scoped to plain text only. Added real server-side extraction (`pypdf`, `python-docx`) via a new `/assistant/extract-file` endpoint -- verified end-to-end with actual generated `.pdf` and `.docx` test files (not just import checks), both correctly extracting their real text content. An unreadable/encrypted/empty file returns a clear error instead of silently attaching blank content.
+
+**Bug found by tracing the chat pipeline (before any live test was even run):** attachment text was used for the Gemini call on the turn it arrived on, but was **never persisted** -- so a follow-up question later in the same conversation ("what are the three main points?") had no way to see the document again, only whatever the model happened to restate in its first reply. Fixed: `assistant_messages` gained an `attachment_text` column (applied directly via the Supabase MCP connection); every attachment still in the session's history window is now gathered into one document-context block given to every turn, not just the one it was attached on.
+
+**Live verification status: UNVERIFIED end-to-end this session.** The file upload and first-turn send were confirmed working (attachment chip rendered, session auto-titled from the question, request reached the backend correctly), but all 3 attempts to get a reply -- needed before a follow-up question could test the persistence fix -- hit genuine Gemini 429s. The fix itself was verified by code tracing and the schema change was confirmed applied, but the full "attach in turn 1, ask an unrelated follow-up in turn 3, get an answer that uses turn 1's document" loop could not be completed live today.
+
+## 5. Stale-success-banner bug: found live, fixed across all 8 engine panels
+
+**This was found by accident while retesting Translator**, and turned out to be the most consequential UI bug of this phase. After a Spanish translation failed (429), the panel showed a **"Translation Complete, 🇪🇸 Spanish"** banner with the *previous* successful French output still displayed underneath -- a combination that could genuinely mislead a user into thinking their Spanish translation had worked. A direct backend request confirmed the real response was `HTTP 500`; the frontend was the only thing claiming success.
+
+Root cause, present identically across every engine panel:
+- **Paraphraser, Grammar, Humanizer, Summarizer, Translator:** local `outputText` state, set on success but never cleared in the `catch` block on a subsequent failure. Fixed: now cleared there in all 5.
+- **Detector, SEO, Agent Studio:** gated on TanStack Query's `mutation.data`, which by design keeps the last successful value across a failed retry. Fixed: result displays now additionally require `mutation.isSuccess`, which correctly flips `false` the instant a new attempt starts, regardless of whether `data` is still populated from before.
+- **Writing DNA audited and left alone:** its displayed profile comes from a real persisted query (`useWritingDNAProfile`), not a mutation result -- continuing to show an existing saved profile after a failed re-enroll attempt is correct behavior, not staleness.
+
+Typechecked and production-built clean before deploy.
+
+## 6. Live verification summary (production, this session)
+
+| Area | Result |
+|---|---|
+| Retry/backoff root-cause fix | Deployed; behavior consistent with the fix in all observed latencies (no request exceeded ~21s worst case) |
+| Translator en->fr (name/date/number preservation) | **PASS** (live, full success) |
+| Translator es/de/hi | **UNVERIFIED** -- blocked by sustained Gemini 429s, not a code defect (confirmed via direct backend request) |
+| Translator langdetect validation logic | **PASS** (unit-verified, 5/5 cases correct, determinism bug found and fixed) |
+| Grammar structured issues | **PASS** (unit-verified, 4/4 cases correct) |
+| Grammar degraded-check score suppression | **PASS** (bug found live, fixed, re-deployed) |
+| SEO plain-text heading detection | **PASS** (unit-verified, 3/3 cases correct) |
+| PDF/DOCX extraction | **PASS** (verified with real generated test files) |
+| Document-context persistence across chat turns | **UNVERIFIED** -- code-traced bug fix applied and schema confirmed migrated, but the live multi-turn conversation could not complete due to sustained 429s |
+| Stale-success-banner fix (8 panels) | **PASS** (typecheck + build clean; the originating Translator case was directly observed and is now fixed by the same mechanism) |
+| Frontend duplicate-request audit (Phase 4) | **PASS** -- no `useEffect`-driven request loops found in any of the 8 engine panels |
+| Chat single-request-per-click | **PASS** (observed: each send produced exactly one POST, error or success) |
+
+## 7. What this session did NOT cover from the original 33-phase instruction set
+
+Stated plainly rather than silently treated as done:
+
+- **Exhaustive 10-case test matrices per engine** (Phase 21) -- not run; testing this session was targeted at reproducing specific suspected bugs (timeout/duplicate-requests, translation output correctness, grammar honesty, document context) rather than broad-coverage sweeps of every engine with 10 varied inputs each.
+- **Full language matrix for Translator** (Phase 5) -- only English->French completed live; Spanish/German/Hindi/Arabic/Chinese/Japanese and all reverse-direction pairs are UNVERIFIED this session due to the rate limit.
+- **Humanizer, Detector, Summarizer, Paraphraser deliberate-input testing** (Phases 6, 8) -- not exercised live this session; only audited by reading their source, which showed no fake-fallback issues (already fixed in earlier phases) but real-output quality was not freshly re-verified today.
+- **Writing DNA cross-engine A/B comparison** (Phase 22 of the instructions, i.e. two contrasting profiles run through the same input to confirm measurably different output) -- not run this session.
+- **Cross-engine pipelines** (Phase 23 of the instructions -- Grammar->Paraphraser->Grammar->Detector, etc.) -- not run this session.
+- **Full multi-turn chat context test** (Phase 19 -- name recall, pronoun resolution, refresh/logout persistence) -- session persistence across page reload was verified in Phase 23; the specific "remember my name" / "what did I just tell you" context tests were not re-run this session.
+- **Investor-POV synthesis** (Phase 30) -- not performed as a distinct exercise this session; the fixes above speak to several of its underlying questions (translator now validates its own output, grammar doesn't overstate confidence, document chat is now actually context-aware) but no formal write-up was produced.
+
+## 8. Build and deployment
+
+- Backend: full dependency install into a disposable venv (matching production `requirements.txt`, including newly added `langdetect`, `pypdf`, `python-docx`, `python-multipart`) confirmed the app imports cleanly and all routes register via `TestClient` against the real OpenAPI schema, ahead of every push this phase.
+- Frontend: `tsc --noEmit` and a full `next build` passed clean before every push.
+- Git: 7 commits this phase, all pushed to `main` and confirmed live on Render/Vercel: `27725f0` (retry/backoff), `3cffa9d` (translator validation), `cd52418` (PDF/DOCX + document context), `3a022b7` (grammar structured issues), `2cf8539` (SEO heading fix), `d466712` (stale-banner fix, 8 panels), `9cd7690` (grammar score suppression).
+
+## 9. Final status
+
+The actual root cause of the reported timeout/"too many requests" behavior was found by tracing the request lifecycle end-to-end rather than assumed, and fixed at the source (error classification + real backoff) rather than by raising a timeout number. Live retesting of that fix surfaced a second, unrelated, and arguably more user-facing bug -- stale success banners across every engine panel -- which was traced, fixed, and deployed the same session, exactly as instructed ("don't stop after finding the first fix"). Several planned verification steps (the full translation language matrix, document Q&A continuity, cross-engine pipelines) remain genuinely unverified this session because Gemini's own rate limit was, for most of this session, blocking the large majority of requests outright -- confirmed directly against the backend, not assumed, and not something further application code can work around. That constraint is the single most urgent open item and needs action on the Gemini API key/billing side, not further engineering here.
