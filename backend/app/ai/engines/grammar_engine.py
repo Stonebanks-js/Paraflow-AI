@@ -1,8 +1,13 @@
 """Grammar engine - pure prompt builder, no provider-specific code."""
 from typing import Optional
+import json
+import re
+import structlog
 
 from .base import BaseAIEngine
 from app.ai.llm_service import generate_dict
+
+logger = structlog.get_logger()
 
 
 class GrammarIssue:
@@ -45,17 +50,33 @@ class GrammarEngine(BaseAIEngine):
             "change what is an actual error, never 'correct' a real stylistic preference away."
             if writing_dna else ""
         )
+        # Ask for structured, itemized issues (type/original/correction/
+        # explanation/severity) instead of only corrected text. Previously
+        # a genuine Gemini correction was represented as a single synthetic
+        # "Grammar and phrasing improvements applied" entry -- honestly
+        # labeled, but not the itemized breakdown a real writing assistant
+        # should give (which specific issue, where, why). Falls back to
+        # that same honest summary if Gemini doesn't return parseable
+        # JSON, rather than failing the whole request over a formatting
+        # slip.
         system_prompt = (
-            "Fix grammar, spelling, punctuation, and style issues in the following text. "
-            "Preserve the author's voice and the original meaning."
-            f"{style_clause} "
-            "Return ONLY the corrected text with no explanations, no labels, no quotes, no markdown."
+            "You are a professional grammar and writing editor. Analyze the text below for genuine "
+            "grammar, spelling, punctuation, and clarity issues -- do not invent issues that aren't "
+            "there; if the text is already correct, return an empty issues list. Preserve the "
+            "author's voice and original meaning."
+            f"{style_clause}\n\n"
+            "Respond with ONLY valid JSON (no markdown fences, no text outside the JSON) in exactly "
+            "this shape:\n"
+            '{"corrected_text": "the fully corrected text", "issues": [{"type": '
+            '"grammar|spelling|punctuation|clarity", "original": "the exact problematic snippet as it '
+            'appears in the input", "correction": "the fixed version of that snippet", "explanation": '
+            '"one short sentence explaining the issue", "severity": "error|warning|info"}]}'
         )
         result = generate_dict(
             system_prompt=system_prompt,
             user_prompt=input_text,
-            temperature=0.3,
-            max_tokens=1024,
+            temperature=0.2,
+            max_tokens=1536,
         )
         # Unlike Paraphraser/Humanizer/Translator, there IS an honest
         # partial local check here when Gemini fails: the rule-based scan
@@ -69,29 +90,32 @@ class GrammarEngine(BaseAIEngine):
         # unreported. checked_by makes that distinction visible to callers
         # instead of presenting both cases identically.
         gemini_reached = result.get("status") == "success" and bool(result.get("output"))
+        issue_dicts = None
         if gemini_reached:
-            corrected_text = result["output"]
+            parsed = self._parse_structured_output(result["output"], input_text)
+            if parsed is not None:
+                corrected_text, issue_dicts = parsed
+            else:
+                # Gemini responded but not in the requested JSON shape --
+                # still a real result, just fall back to the summary form
+                # rather than discarding a genuine correction.
+                corrected_text = result["output"]
         elif issues:
             corrected_text = self._apply_rule_fixes(input_text, issues)
         else:
             corrected_text = input_text
 
-        issue_dicts = [self._issue_to_dict(i) for i in issues]
-        if corrected_text.strip() != input_text.strip() and not issue_dicts:
-            # The LLM changed the text in a way the rule-based scan didn't
-            # catch (the common case -- real grammar errors). Represent
-            # that honestly instead of showing "no issues found" next to
-            # visibly different corrected text; this isn't a claim of
-            # precise per-error positions, just an honest summary that a
-            # real correction was made and what it was.
-            issue_dicts = [{
-                "type": "grammar",
-                "message": "Grammar and phrasing improvements applied",
-                "position": 0,
-                "length": len(input_text),
-                "severity": "info",
-                "suggestions": [corrected_text],
-            }]
+        if issue_dicts is None:
+            issue_dicts = [self._issue_to_dict(i) for i in issues]
+            if corrected_text.strip() != input_text.strip() and not issue_dicts:
+                issue_dicts = [{
+                    "type": "grammar",
+                    "message": "Grammar and phrasing improvements applied",
+                    "position": 0,
+                    "length": len(input_text),
+                    "severity": "info",
+                    "suggestions": [corrected_text],
+                }]
 
         return {
             "status": "success",
@@ -100,6 +124,67 @@ class GrammarEngine(BaseAIEngine):
             "language": language,
             "checked_by": "gemini" if gemini_reached else "rule_based_only",
         }
+
+    def _parse_structured_output(self, raw_output: str, input_text: str):
+        """Parse Gemini's {"corrected_text", "issues": [...]} JSON response
+        into the engine's (corrected_text, issue_dicts) shape. Returns None
+        if the output isn't valid/usable JSON, so the caller can fall back
+        to the honest summary form instead of fabricating structure."""
+        text = raw_output.strip()
+        # Models frequently wrap JSON in ```json fences despite being told
+        # not to -- strip that rather than failing to parse over it.
+        fence_match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", text, re.DOTALL)
+        if fence_match:
+            text = fence_match.group(1)
+
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(data, dict) or "corrected_text" not in data:
+            return None
+
+        corrected_text = str(data.get("corrected_text") or "")
+        if not corrected_text.strip():
+            return None
+
+        raw_issues = data.get("issues")
+        if not isinstance(raw_issues, list):
+            raw_issues = []
+
+        issue_dicts = []
+        for item in raw_issues:
+            if not isinstance(item, dict):
+                continue
+            original = str(item.get("original") or "")
+            correction = str(item.get("correction") or "")
+            explanation = str(item.get("explanation") or "").strip()
+            issue_type = str(item.get("type") or "grammar").strip() or "grammar"
+            severity = item.get("severity")
+            if severity not in ("error", "warning", "info"):
+                severity = "warning"
+            # Best-effort position lookup so the frontend can still
+            # highlight the right span; falls back to 0/0 (whole-text)
+            # rather than dropping a genuine issue just because the exact
+            # substring wasn't found verbatim in the input.
+            position = input_text.find(original) if original else -1
+            if position < 0:
+                position, length = 0, 0
+            else:
+                length = len(original)
+            message = explanation or f"Possible {issue_type} issue"
+            if original:
+                message = f"{message} (\"{original}\")"
+            issue_dicts.append({
+                "type": issue_type,
+                "message": message,
+                "position": position,
+                "length": length,
+                "severity": severity,
+                "suggestions": [correction] if correction else [],
+            })
+
+        return corrected_text, issue_dicts
 
     def _stage1_rule_based(self, text: str) -> list:
         issues = []
