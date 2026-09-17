@@ -171,7 +171,7 @@ class AssistantService:
 
         history_resp = (
             self.admin.table("assistant_messages")
-            .select("role,content")
+            .select("role,content,attachment_name,attachment_text")
             .eq("session_id", session["id"])
             .order("created_at", desc=True)
             .limit(MAX_HISTORY_MESSAGES)
@@ -179,19 +179,42 @@ class AssistantService:
         )
         history = list(reversed(history_resp.data or []))
 
-        user_prompt = content
-        if attachment_text:
-            user_prompt = (
-                f"{content}\n\n"
-                f"[Attached file: {attachment_name or 'file.txt'}]\n"
-                f"---\n{attachment_text[:12000]}\n---"
+        # Document-aware context: previously the attachment's extracted
+        # text was used only for the turn it was attached on and never
+        # persisted, so a follow-up question a turn later ("what are the
+        # three main points?") had no way to see the document again --
+        # only whatever the model happened to restate in its first reply.
+        # Every attachment still in the history window is now gathered
+        # into one document-context block (deduped by name) and given to
+        # every turn in the session, not just the one it arrived on.
+        seen_attachments = set()
+        document_blocks = []
+        for m in history:
+            name = m.get("attachment_name")
+            text = m.get("attachment_text")
+            if name and text and name not in seen_attachments:
+                seen_attachments.add(name)
+                document_blocks.append(f"[Attached file: {name}]\n---\n{text}\n---")
+        if attachment_text and attachment_name not in seen_attachments:
+            document_blocks.append(
+                f"[Attached file: {attachment_name or 'file.txt'}]\n---\n{attachment_text[:12000]}\n---"
             )
 
         conversation = "\n\n".join(
             f"{'User' if m['role'] == 'user' else 'Para Agent'}: {m['content']}"
             for m in history
         )
-        full_prompt = f"{conversation}\n\nUser: {user_prompt}" if conversation else user_prompt
+
+        prompt_sections = []
+        if document_blocks:
+            prompt_sections.append(
+                "The user has attached the following document(s) in this conversation. "
+                "Use them to answer when relevant, and say clearly when the answer isn't "
+                "in them rather than guessing or inventing facts:\n\n"
+                + "\n\n".join(document_blocks)
+            )
+        prompt_sections.append(f"{conversation}\n\nUser: {content}" if conversation else f"User: {content}")
+        full_prompt = "\n\n---\n\n".join(prompt_sections)
 
         result = generate_dict(
             system_prompt=SYSTEM_PROMPT,
@@ -218,6 +241,7 @@ class AssistantService:
             "role": "user",
             "content": content,
             "attachment_name": attachment_name,
+            "attachment_text": attachment_text[:12000] if attachment_text else None,
         }
         assistant_row = {
             "session_id": session["id"],

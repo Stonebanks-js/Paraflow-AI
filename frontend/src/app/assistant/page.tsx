@@ -14,6 +14,8 @@ import {
 } from "@/hooks/use-api";
 import type { AssistantMessage } from "@/types";
 import { cn } from "@/lib/utils";
+import { API_BASE } from "@/lib/api";
+import { getAccessToken } from "@/lib/auth-service";
 import {
   Bot,
   Send,
@@ -34,6 +36,7 @@ export default function AssistantPage() {
   const [input, setInput] = useState("");
   const [attachment, setAttachment] = useState<{ name: string; text: string } | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
+  const [attachUploading, setAttachUploading] = useState(false);
   const [localMessages, setLocalMessages] = useState<AssistantMessage[]>([]);
   const [pending, setPending] = useState(false);
 
@@ -57,7 +60,7 @@ export default function AssistantPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [localMessages, pending]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
@@ -66,17 +69,48 @@ export default function AssistantPage() {
     const isTextLike =
       file.type.startsWith("text/") ||
       /\.(txt|md|markdown|csv|json|log)$/i.test(file.name);
-    if (!isTextLike) {
-      setAttachError("Only plain text files are supported right now (.txt, .md, .csv, .json).");
+    const isBinaryDoc = /\.(pdf|docx)$/i.test(file.name);
+
+    if (isTextLike) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = String(reader.result || "");
+        setAttachment({ name: file.name, text: text.slice(0, MAX_ATTACHMENT_CHARS) });
+      };
+      reader.onerror = () => setAttachError("Couldn't read that file. Please try again.");
+      reader.readAsText(file);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const text = String(reader.result || "");
-      setAttachment({ name: file.name, text: text.slice(0, MAX_ATTACHMENT_CHARS) });
-    };
-    reader.onerror = () => setAttachError("Couldn't read that file. Please try again.");
-    reader.readAsText(file);
+
+    if (!isBinaryDoc) {
+      setAttachError("Supported file types: .txt, .md, .csv, .json, .pdf, .docx");
+      return;
+    }
+
+    // PDF/DOCX need real server-side extraction -- a browser can't parse
+    // these formats itself, so this sends the raw file to the backend
+    // rather than pretending to "attach" bytes the model could never read.
+    setAttachUploading(true);
+    try {
+      const token = await getAccessToken();
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/v1/assistant/extract-file`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: formData,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.detail || `Couldn't read that file (HTTP ${res.status}).`);
+      }
+      const data = await res.json();
+      setAttachment({ name: file.name, text: String(data.text || "").slice(0, MAX_ATTACHMENT_CHARS) });
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : "Couldn't extract text from that file.");
+    } finally {
+      setAttachUploading(false);
+    }
   };
 
   const handleSend = async () => {
@@ -271,7 +305,18 @@ export default function AssistantPage() {
           {/* Composer */}
           <div className="border-t border-border/50 p-3 shrink-0">
             <AnimatePresence>
-              {attachment && (
+              {attachUploading && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="flex items-center gap-2 mb-2 px-3 py-1.5 rounded-lg bg-muted/60 text-xs w-fit"
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Reading file…</span>
+                </motion.div>
+              )}
+              {attachment && !attachUploading && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
@@ -291,7 +336,7 @@ export default function AssistantPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".txt,.md,.markdown,.csv,.json,.log,text/plain"
+                accept=".txt,.md,.markdown,.csv,.json,.log,.pdf,.docx,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 className="hidden"
                 onChange={handleFileChange}
               />
@@ -300,9 +345,10 @@ export default function AssistantPage() {
                 size="icon"
                 className="shrink-0"
                 onClick={() => fileInputRef.current?.click()}
-                title="Attach a text file"
+                disabled={attachUploading}
+                title="Attach a file (.txt, .md, .csv, .json, .pdf, .docx)"
               >
-                <Paperclip className="w-4 h-4" />
+                {attachUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
               </Button>
               <Textarea
                 value={input}

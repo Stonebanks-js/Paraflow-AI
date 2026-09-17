@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from typing import Optional
 
 from app.schemas.assistant import (
@@ -11,8 +11,27 @@ from app.schemas.assistant import (
 )
 from app.api.v1.endpoints.auth import get_current_user
 from app.services.assistant_service import AssistantService
+from app.services.document_extraction_service import extract_text, UnsupportedFileError
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
+
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10MB
+
+
+@router.post("/extract-file")
+async def extract_file(file: UploadFile = File(...), current_user=Depends(get_current_user)):
+    """Server-side text extraction for attachment types a browser can't
+    parse on its own (PDF, DOCX). Plain-text formats are still read
+    client-side via FileReader -- this endpoint only exists for the
+    binary formats, so no unnecessary round trip for a .txt file."""
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB).")
+    try:
+        text = extract_text(file.filename or "upload", content)
+    except UnsupportedFileError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"filename": file.filename, "text": text}
 
 
 @router.get("/sessions", response_model=AssistantSessionListResponse)

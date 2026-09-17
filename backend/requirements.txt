@@ -17,6 +17,11 @@ email-validator>=2.3.0
 
 # HTTP Client
 httpx>=0.27.0
+python-multipart>=0.0.9
+
+# Document text extraction (Para Agent file attachments)
+pypdf>=4.2.0
+python-docx>=1.1.0
 
 # AI Services
 anthropic>=0.34.0
