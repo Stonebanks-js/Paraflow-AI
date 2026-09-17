@@ -12,6 +12,7 @@ provider is active.
 from __future__ import annotations
 
 import threading
+import time
 from typing import List, Optional
 
 import structlog
@@ -164,12 +165,25 @@ def generate_with_fallback(
             last_error = result
             if not result.retriable or attempt >= max_retries:
                 break
+            # ROOT CAUSE FIX: this loop used to retry immediately with no
+            # delay at all. For the most common retriable failure in
+            # production -- a Gemini 429 (see Phase 22/23's rate-limit
+            # finding) -- retrying 0ms later hits the exact same
+            # still-throttled window almost every time, wasting a second
+            # real API call and doubling pressure on an already-strained
+            # key instead of giving it a chance to recover. A short,
+            # bounded backoff trades a little latency (still well inside
+            # the frontend's own request timeout) for a real chance of
+            # success.
+            backoff_seconds = min(1.5 * (attempt + 1), 3.0)
             logger.warning(
                 "llm.retry",
                 provider=provider_name,
                 attempt=attempt + 1,
                 code=result.code,
+                backoff_seconds=backoff_seconds,
             )
+            time.sleep(backoff_seconds)
 
     if last_error is None:
         return LLMError(

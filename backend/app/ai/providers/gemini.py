@@ -27,6 +27,27 @@ _client_lock = threading.Lock()
 _client_cache = {}
 
 
+class GeminiAPIError(RuntimeError):
+    """A Gemini API failure with a known retriability, carried on the
+    exception itself so base.py's generate() doesn't have to guess.
+
+    Root cause traced live: base.py previously marked EVERY exception
+    retriable=True regardless of type, and factory.py's retry loop had
+    zero backoff between attempts. That meant a genuine 429 (Gemini's
+    documented, persistent rate-limit issue -- see Phase 22/23) got
+    retried immediately against the exact same still-throttled window,
+    turning one user click into two real Gemini calls and doubling load
+    at the worst possible moment instead of recovering from it. A 4xx
+    client error (bad request, auth, not found) is even worse to retry
+    identically -- it will just fail the same way again, wasting a
+    second call for zero benefit. Only 429 and 5xx are worth a retry.
+    """
+
+    def __init__(self, message: str, *, retriable: bool):
+        super().__init__(message)
+        self.retriable = retriable
+
+
 def _get_gemini_client(api_key: str, timeout: float = 10.0) -> httpx.Client:
     """Return a singleton httpx.Client for Gemini with connection reuse.
 
@@ -134,7 +155,7 @@ class GeminiProvider(BaseLLMProvider):
                 model=model,
                 latency=round(elapsed, 3),
             )
-            raise RuntimeError(f"Gemini timed out after {elapsed:.1f}s") from None
+            raise GeminiAPIError(f"Gemini timed out after {elapsed:.1f}s", retriable=True) from None
         except httpx.HTTPStatusError as e:
             # Build the message from status code + reason only -- never
             # str(e), which for HTTPStatusError includes the full request
@@ -153,7 +174,13 @@ class GeminiProvider(BaseLLMProvider):
                 status=status,
                 reason=reason,
             )
-            raise RuntimeError(f"Gemini error: {status} {reason}") from None
+            # 429 (rate limit) and 5xx (transient server-side failure) can
+            # genuinely succeed on a retry. A 4xx client error (400 bad
+            # request, 401/403 auth, 404 unknown model) means the exact
+            # same request will fail the exact same way again -- retrying
+            # it only burns another call and adds latency for nothing.
+            retriable = status == 429 or status >= 500
+            raise GeminiAPIError(f"Gemini error: {status} {reason}", retriable=retriable) from None
         except httpx.HTTPError as e:
             elapsed = time.monotonic() - start
             logger.error(
@@ -162,7 +189,7 @@ class GeminiProvider(BaseLLMProvider):
                 latency=round(elapsed, 3),
                 error_type=type(e).__name__,
             )
-            raise RuntimeError("Gemini request failed") from None
+            raise GeminiAPIError("Gemini request failed", retriable=True) from None
 
         data = response.json()
 
@@ -184,8 +211,13 @@ class GeminiProvider(BaseLLMProvider):
                 finish_reason = data.get("candidates", [{}])[0].get("finishReason", "")
             except (IndexError, KeyError, TypeError):
                 pass
-            raise RuntimeError(
-                f"Gemini returned empty response. finishReason={finish_reason or 'unknown'}"
+            # Not retriable: an empty response is almost always systematic
+            # (a safety filter or the same prompt/token-budget interaction)
+            # rather than a network blip, so an identical retry would very
+            # likely produce the exact same empty result.
+            raise GeminiAPIError(
+                f"Gemini returned empty response. finishReason={finish_reason or 'unknown'}",
+                retriable=False,
             )
 
         # Parse usage metadata

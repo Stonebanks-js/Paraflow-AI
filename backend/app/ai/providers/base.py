@@ -158,10 +158,22 @@ class BaseLLMProvider(ABC):
             # (and the provider-name prefix, since the message alone may
             # not indicate its origin) is actually needed.
             message = str(e)[:200] if isinstance(e, RuntimeError) else f"{self.name} error: {str(e)[:200]}"
+            # ROOT CAUSE FIX (live-traced via Para Agent + engine timeout
+            # reports): this used to hardcode retriable=True for every
+            # exception, including a 429. Combined with factory.py's old
+            # zero-backoff retry loop, that meant a single rate-limited
+            # request became TWO real Gemini calls fired back-to-back into
+            # the same already-throttled window -- amplifying the exact
+            # "too many requests" problem instead of recovering from it.
+            # Providers that classify their own errors (GeminiAPIError)
+            # carry the correct answer on the exception; only a genuinely
+            # unexpected exception type falls back to the conservative
+            # "assume retriable" default.
+            retriable = getattr(e, "retriable", True)
             return LLMError(
                 code="PROVIDER_ERROR",
                 message=message,
                 provider=self.name,
-                retriable=True,
+                retriable=retriable,
                 latency_seconds=latency,
             )
